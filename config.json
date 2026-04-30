@@ -1,0 +1,9 @@
+{
+    "headset_name": "Artics 7+",
+    "speaker_name": "2 - Pebble V2",
+    "auto_list": {
+        "DCS.exe": "F:/Games/DCS World/bin/DCS.exe",
+        "LauncherDistrib.14.7.4.4429.exe": "F:/Games/Bsglauncher/LauncherDistrib.14.7.4.4429.exe"
+    },
+    "ask_list": {}
+}
