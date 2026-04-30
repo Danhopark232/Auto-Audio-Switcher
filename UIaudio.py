@@ -48,6 +48,7 @@ class AutoAudioApp(ctk.CTk):
         self.is_mini = True
         self.is_running = True
         self.last_state = "speaker"  # 기본값 스피커 시작
+        self.manual_override = False  # 수동 변경 플래그
         self.audio_device_names = self.get_output_device_names()
 
         # 2. 메인 윈도우 기본 설정
@@ -106,14 +107,20 @@ class AutoAudioApp(ctk.CTk):
             import warnings
             warnings.filterwarnings("ignore")
             from pycaw.pycaw import AudioUtilities
+            from pycaw.constants import EDataFlow
+            from pycaw.utils import AudioDeviceState
 
             output_devices = []
             for dev in AudioUtilities.GetAllDevices():
                 try:
-                    if AudioUtilities.GetEndpointDataFlow(dev.id) == "eRender":
-                        name = getattr(dev, "FriendlyName", None) or getattr(dev, "friendly_name", None)
-                        if name and name not in output_devices:
-                            output_devices.append(name)
+                    if AudioUtilities.GetEndpointDataFlow(dev.id) != "eRender":
+                        continue
+                    if getattr(dev, "state", None) != AudioDeviceState.Active:
+                        continue
+
+                    name = getattr(dev, "FriendlyName", None) or getattr(dev, "friendly_name", None)
+                    if name and name not in output_devices:
+                        output_devices.append(name)
                 except:
                     pass
             return output_devices
@@ -281,13 +288,33 @@ class AutoAudioApp(ctk.CTk):
     def manual_set_audio(self, mode):
         self.set_audio(mode)
         self.last_state = mode
+        self.manual_override = True  # 수동 변경 플래그 설정
         self.update_mini_buttons_ui(mode)
 
     def set_audio(self, mode):
         target = self.config["headset_name"] if mode == "headset" else self.config["speaker_name"]
+        print(f"Attempting to set audio device to: {target}")
         try:
-            subprocess.run(["nircmd.exe", "setdefaultsounddevice", target], shell=True)
-        except: pass
+            import warnings
+            warnings.filterwarnings("ignore")
+            from pycaw.pycaw import AudioUtilities
+            from pycaw.constants import ERole
+
+            devices = AudioUtilities.GetAllDevices()
+            print(f"Found {len(devices)} total devices")
+            for dev in devices:
+                if AudioUtilities.GetEndpointDataFlow(dev.id) != "eRender":
+                    continue
+                name = getattr(dev, "FriendlyName", None) or getattr(dev, "friendly_name", None)
+                print(f"Output device: '{name}' (ID: {dev.id})")
+                if name == target:
+                    print(f"Matching device found, setting as default: {name}")
+                    AudioUtilities.SetDefaultDevice(dev.id, roles=[ERole.eMultimedia])
+                    print("Default endpoint set successfully")
+                    return
+            print(f"No matching device found for target: {target}")
+        except Exception as e:
+            print(f"Failed to set audio device: {e}")
 
     def save_and_close(self):
         self.config["headset_name"] = self.hs_var.get()
@@ -329,6 +356,7 @@ class AutoAudioApp(ctk.CTk):
 
             if found_name:
                 icon = get_icon_from_exe(found_path, size=40)
+                self.manual_override = False  # 프로그램 감지 시 수동 플래그 리셋
                 if is_ask:
                     if self.last_state != "headset":
                         # 질문 모드는 메인 쓰레드에서 팝업 실행
@@ -341,7 +369,7 @@ class AutoAudioApp(ctk.CTk):
                 
                 self.after(0, lambda n=found_name, i=icon: self.update_detect_ui(n, i))
             else:
-                if self.last_state == "headset":
+                if self.last_state == "headset" and not self.manual_override:
                     self.set_audio("speaker")
                     self.last_state = "speaker"
                     self.after(0, lambda: self.update_mini_buttons_ui("speaker"))
