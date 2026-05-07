@@ -31,7 +31,8 @@ MINI_HEIGHT = 94
 PROGRAM_ICON_SIZE = 32
 APP_NAME = "AutoAudioSwitcher"
 ACTIVE_COLOR = "#2563EB"
-INACTIVE_BLUE = "#1E293B"
+DEVICE_ACTIVE_COLOR = "#3B82F6"
+DEVICE_INACTIVE_COLOR = "#1E293B"
 SPI_GETWORKAREA = 0x0030
 
 
@@ -162,6 +163,7 @@ class AutoAudioApp(ctk.CTk):
         self.drag_data = None
         self.list_drop_targets = {}
         self.exe_icon_cache = {}
+        self.device_controls = {}
         self.tray = None
         ensure_icon_assets()
         self.icons = {
@@ -391,9 +393,9 @@ class AutoAudioApp(ctk.CTk):
         self.ask_label.pack(fill="x")
 
         button_row = ctk.CTkFrame(top_row, fg_color="transparent")
-        button_row.pack(side="right", fill="y")
-        ctk.CTkButton(button_row, text="Yes", width=86, height=34, fg_color=ACTIVE_COLOR, hover_color="#1D4ED8", command=lambda: self.accept_ask_prompt(target)).pack(fill="x", pady=(0, 5))
-        ctk.CTkButton(button_row, text="No", width=86, height=34, fg_color="#444444", hover_color="#555555", command=self.dismiss_ask_prompt).pack(fill="x")
+        button_row.pack(side="right")
+        ctk.CTkButton(button_row, text="Yes", width=72, height=42, fg_color=ACTIVE_COLOR, hover_color="#1D4ED8", command=lambda: self.accept_ask_prompt(target)).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(button_row, text="No", width=72, height=42, fg_color="#444444", hover_color="#555555", command=self.dismiss_ask_prompt).pack(side="left")
 
     def draw_settings_ui(self):
         self.configure(fg_color="#171717")
@@ -439,8 +441,9 @@ class AutoAudioApp(ctk.CTk):
         is_active = self.last_state == mode
         label = title
         icon = self.icons["speaker"] if mode == "speaker" else self.icons["headset"]
-        menu_color = ACTIVE_COLOR if is_active else INACTIVE_BLUE
-        ctk.CTkButton(frame, text=label, image=icon, compound="left", height=36, fg_color=menu_color, hover_color="#1D4ED8", command=lambda: self.manual_set_audio(mode)).pack(fill="x", padx=10, pady=(10, 8))
+        menu_color = DEVICE_ACTIVE_COLOR if is_active else DEVICE_INACTIVE_COLOR
+        device_button = ctk.CTkButton(frame, text=label, image=icon, compound="left", height=36, fg_color=menu_color, hover_color="#1D4ED8", command=lambda: self.manual_set_audio(mode))
+        device_button.pack(fill="x", padx=10, pady=(10, 8))
 
         variable = ctk.StringVar(value=self.config_data.get(f"{mode}_name") if self.config_data.get(f"{mode}_name") in device_options else device_options[0])
         if mode == "speaker":
@@ -448,7 +451,7 @@ class AutoAudioApp(ctk.CTk):
         else:
             self.hs_var = variable
 
-        ctk.CTkOptionMenu(
+        option_menu = ctk.CTkOptionMenu(
             frame,
             values=device_options,
             variable=variable,
@@ -457,7 +460,9 @@ class AutoAudioApp(ctk.CTk):
             fg_color=menu_color,
             button_color=menu_color,
             button_hover_color="#1D4ED8",
-        ).pack(fill="x", padx=10, pady=(0, 10))
+        )
+        option_menu.pack(fill="x", padx=10, pady=(0, 10))
+        self.device_controls[mode] = {"button": device_button, "menu": option_menu}
         return frame
 
     def refresh_program_lists(self):
@@ -641,6 +646,21 @@ class AutoAudioApp(ctk.CTk):
             self.headset_btn.configure(fg_color=active if state == "headset" else inactive)
         if hasattr(self, "mini_state_label") and self.mini_state_label.winfo_exists():
             self.mini_state_label.configure(text=f"Output: {self.audio_label(state)}")
+        self.update_device_controls_ui(state)
+
+    def update_device_controls_ui(self, state):
+        for mode, controls in getattr(self, "device_controls", {}).items():
+            color = DEVICE_ACTIVE_COLOR if mode == state else DEVICE_INACTIVE_COLOR
+            hover = "#1D4ED8" if mode == state else "#334155"
+            button = controls.get("button")
+            menu = controls.get("menu")
+            try:
+                if button and button.winfo_exists():
+                    button.configure(fg_color=color, hover_color=hover)
+                if menu and menu.winfo_exists():
+                    menu.configure(fg_color=color, button_color=color, button_hover_color=hover)
+            except Exception:
+                pass
 
     def update_detect_ui(self, name, icon=None):
         self.current_detected_name = name

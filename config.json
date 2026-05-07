@@ -8,9 +8,7 @@
             "value": "DCS.exe",
             "path": "F:/Games/DCS World/bin/DCS.exe",
             "target_audio": "headset"
-        }
-    ],
-    "ask_list": [
+        },
         {
             "name": "Aviassembly.exe",
             "match_type": "process_name",
@@ -19,5 +17,6 @@
             "target_audio": "headset"
         }
     ],
+    "ask_list": [],
     "start_with_windows": true
 }
