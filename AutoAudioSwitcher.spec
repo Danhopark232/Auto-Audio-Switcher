@@ -6,7 +6,11 @@ from PyInstaller.utils.hooks import collect_data_files
 block_cipher = None
 
 datas = collect_data_files("customtkinter")
-datas += [("nircmd.exe", ".")]
+datas += [
+    ("assets/icons", "assets/icons"),
+    ("config.json", "."),
+    ("nircmd.exe", "."),
+]
 
 a = Analysis(
     ["UIaudio.py"],
@@ -38,9 +42,6 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
     name="AutoAudioSwitcher",
     debug=False,
@@ -55,4 +56,18 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon="assets/app_icon.ico",
+    exclude_binaries=True,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name="AutoAudioSwitcher",
+    contents_directory=".",
 )

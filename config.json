@@ -3,20 +3,42 @@
     "speaker_name": "Speakers(2- Pebble V3)",
     "auto_list": [
         {
-            "name": "DCS.exe",
+            "name": "DCS",
             "match_type": "process_name",
             "value": "DCS.exe",
             "path": "F:/Games/DCS World/bin/DCS.exe",
             "target_audio": "headset"
         },
         {
-            "name": "Aviassembly.exe",
+            "name": "Aviassembly",
             "match_type": "process_name",
             "value": "Aviassembly.exe",
             "path": "F:\\SteamLibrary\\steamapps\\common\\Aviassembly\\Aviassembly.exe",
             "target_audio": "headset"
+        },
+        {
+            "name": "Squad",
+            "match_type": "process_name",
+            "value": "SquadGame-Win64-Shipping.exe",
+            "path": "E:\\SteamLibrary\\steamapps\\common\\Squad\\SquadGame\\Binaries\\Win64\\SquadGame-Win64-Shipping.exe",
+            "target_audio": "headset"
         }
     ],
-    "ask_list": [],
+    "ask_list": [
+        {
+            "name": "EscapeFromTarkov.exe",
+            "match_type": "process_name",
+            "value": "EscapeFromTarkov.exe",
+            "path": "E:\\Games\\BSG\\EscapeFromTarkov.exe",
+            "target_audio": "headset"
+        },
+        {
+            "name": "MSFS2024",
+            "match_type": "process_name",
+            "value": "FlightSimulator2024.exe",
+            "path": "F:\\Game\\Microsoft Flight Simulator 2024\\Content\\FlightSimulator2024.exe",
+            "target_audio": "headset"
+        }
+    ],
     "start_with_windows": true
 }

@@ -1,0 +1,30 @@
+{
+    "headset_name": "Headset(Arctis 7+)",
+    "speaker_name": "Speakers(2- Pebble V3)",
+    "auto_list": [
+        {
+            "name": "DCS.exe",
+            "match_type": "process_name",
+            "value": "DCS.exe",
+            "path": "F:/Games/DCS World/bin/DCS.exe",
+            "target_audio": "headset"
+        },
+        {
+            "name": "Aviassembly.exe",
+            "match_type": "process_name",
+            "value": "Aviassembly.exe",
+            "path": "F:\\SteamLibrary\\steamapps\\common\\Aviassembly\\Aviassembly.exe",
+            "target_audio": "headset"
+        }
+    ],
+    "ask_list": [
+        {
+            "name": "EscapeFromTarkov.exe",
+            "match_type": "process_name",
+            "value": "EscapeFromTarkov.exe",
+            "path": "E:\\Games\\BSG\\EscapeFromTarkov.exe",
+            "target_audio": "headset"
+        }
+    ],
+    "start_with_windows": true
+}

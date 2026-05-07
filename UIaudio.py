@@ -5,10 +5,11 @@ import subprocess
 import sys
 import threading
 import time
+import tkinter as tk
 import winreg
 import ctypes
 from ctypes import wintypes
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, font, messagebox
 
 import customtkinter as ctk
 import psutil
@@ -17,30 +18,64 @@ import win32con
 import win32gui
 import win32process
 import win32ui
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageTk
 
 
 APP_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
+RESOURCE_DIR = getattr(sys, "_MEIPASS", APP_DIR)
 CONFIG_FILE = os.path.join(APP_DIR, "config.json")
-ICON_DIR = os.path.join(APP_DIR, "assets", "icons")
+ICON_DIR = os.path.join(RESOURCE_DIR, "assets", "icons")
 CHECK_INTERVAL_SECONDS = 2
 ASK_TIMEOUT_SECONDS = 15
 NOTIFICATION_SECONDS = 4
+STARTUP_MINI_POPUP_SECONDS = 3
 MINI_WIDTH = 420
 MINI_HEIGHT = 94
 PROGRAM_ICON_SIZE = 32
+MINI_DETECTED_ICON_SIZE = 52
+MINI_DETECTED_ICON_SOURCE_SIZE = 128
+MINI_DETECTED_ICON_CORNER_RADIUS = 7
+MARQUEE_FADE_WIDTH = 15
+MARQUEE_STEP_PX = 1
+MARQUEE_INTERVAL_MS = 45
+MARQUEE_EDGE_PAUSE_TICKS = 22
+RUNNING_PROGRAM_CPU_SAMPLE_SECONDS = 0.25
+MIN_RUNNING_PROGRAM_CPU_PERCENT = 0.5
+MIN_RUNNING_PROGRAM_MEMORY_MB = 50
+CPU_CORE_COUNT = max(1, psutil.cpu_count(logical=True) or 1)
+IGNORED_RUNNING_PROGRAM_NAMES = {
+    "idle",
+    "system idle process",
+}
 APP_NAME = "AutoAudioSwitcher"
 ACTIVE_COLOR = "#2563EB"
 DEVICE_ACTIVE_COLOR = "#3B82F6"
 DEVICE_INACTIVE_COLOR = "#1E293B"
 SPI_GETWORKAREA = 0x0030
+DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19
+DWMWA_CAPTION_COLOR = 35
+DWMWA_TEXT_COLOR = 36
 
 
-def get_icon_from_exe(exe_path, size=32):
+def apply_rounded_corners(image, radius):
+    if radius <= 0:
+        return image
+
+    mask = Image.new("L", image.size, 0)
+    draw = ImageDraw.Draw(mask)
+    draw.rounded_rectangle((0, 0, image.width - 1, image.height - 1), radius=radius, fill=255)
+    image = image.copy()
+    image.putalpha(ImageChops.multiply(image.getchannel("A"), mask))
+    return image
+
+
+def get_icon_from_exe(exe_path, size=32, source_size=None, corner_radius=0):
     try:
         if not exe_path or not os.path.exists(exe_path):
             return None
 
+        source_size = max(source_size or size, size)
         large_icons, small_icons = win32gui.ExtractIconEx(exe_path, 0)
         icons = (large_icons or small_icons) if size >= 32 else (small_icons or large_icons)
         if not icons:
@@ -48,17 +83,19 @@ def get_icon_from_exe(exe_path, size=32):
 
         hdc = win32ui.CreateDCFromHandle(win32gui.GetDC(0))
         bitmap = win32ui.CreateBitmap()
-        bitmap.CreateCompatibleBitmap(hdc, size, size)
+        bitmap.CreateCompatibleBitmap(hdc, source_size, source_size)
         memory_dc = hdc.CreateCompatibleDC()
         memory_dc.SelectObject(bitmap)
 
-        win32gui.DrawIconEx(memory_dc.GetSafeHdc(), 0, 0, icons[0], size, size, 0, 0, win32con.DI_NORMAL)
+        win32gui.DrawIconEx(memory_dc.GetSafeHdc(), 0, 0, icons[0], source_size, source_size, 0, 0, win32con.DI_NORMAL)
         for icon in large_icons + small_icons:
             win32gui.DestroyIcon(icon)
 
         bmpinfo = bitmap.GetInfo()
         bmpstr = bitmap.GetBitmapBits(True)
         image = Image.frombuffer("RGBA", (bmpinfo["bmWidth"], bmpinfo["bmHeight"]), bmpstr, "raw", "BGRA", 0, 1)
+        source_corner_radius = int(corner_radius * source_size / size) if size else corner_radius
+        image = apply_rounded_corners(image, source_corner_radius)
         return ctk.CTkImage(light_image=image, dark_image=image, size=(size, size))
     except Exception:
         return None
@@ -120,13 +157,31 @@ def draw_ui_icon_image(kind, size=64, color=(245, 245, 245, 255)):
         for x in (size * 0.38, size * 0.62):
             for y in (size * 0.28, size * 0.50, size * 0.72):
                 draw.ellipse((x - dot, y - dot, x + dot, y + dot), fill=c)
+    elif kind == "minimize":
+        draw.line((size * 0.24, size * 0.64, size * 0.76, size * 0.64), fill=c, width=width)
+    elif kind == "close":
+        draw.line((size * 0.28, size * 0.28, size * 0.72, size * 0.72), fill=c, width=width)
+        draw.line((size * 0.72, size * 0.28, size * 0.28, size * 0.72), fill=c, width=width)
+    elif kind == "edit":
+        try:
+            edit_font = ImageFont.truetype("arial.ttf", int(size * 0.62))
+        except Exception:
+            edit_font = None
+        text = "E"
+        if edit_font:
+            bbox = draw.textbbox((0, 0), text, font=edit_font)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+            draw.text(((size - text_width) / 2, (size - text_height) / 2 - size * 0.06), text, fill=c, font=edit_font)
+        else:
+            draw.text((size * 0.34, size * 0.24), text, fill=c)
 
     return image
 
 
 def ensure_icon_assets():
     os.makedirs(ICON_DIR, exist_ok=True)
-    for name in ("speaker", "headset", "gear", "trash", "handle"):
+    for name in ("speaker", "headset", "gear", "trash", "handle", "minimize", "close", "edit"):
         path = os.path.join(ICON_DIR, f"{name}.png")
         if not os.path.exists(path):
             draw_ui_icon_image(name, size=128).save(path)
@@ -151,7 +206,8 @@ class AutoAudioApp(ctk.CTk):
         self.is_running = True
         self.last_state = "speaker"
         self.manual_override = False
-        self.current_detected_name = "No Program"
+        self.manual_override_during_detection = False
+        self.current_detected_name = "No Program Detected"
         self.current_detected_icon = None
         self.pending_prompt_key = None
         self.ask_countdown_after_id = None
@@ -172,6 +228,9 @@ class AutoAudioApp(ctk.CTk):
             "gear": make_ui_icon("gear", 22),
             "trash": make_ui_icon("trash", 28),
             "handle": make_ui_icon("handle", 24),
+            "minimize": make_ui_icon("minimize", 16),
+            "close": make_ui_icon("close", 16),
+            "edit": make_ui_icon("edit", 28),
         }
         self.audio_device_names = self.get_output_device_names()
 
@@ -187,10 +246,18 @@ class AutoAudioApp(ctk.CTk):
         elif start_mode == "mini":
             self.switch_mode("mini")
         else:
-            self.withdraw()
+            self.show_startup_mini_popup()
 
         self.monitor_thread = threading.Thread(target=self.monitor_loop, daemon=True)
         self.monitor_thread.start()
+
+    def show_startup_mini_popup(self):
+        self.switch_mode("mini", focus=False)
+        self.after(STARTUP_MINI_POPUP_SECONDS * 1000, self.hide_startup_mini_popup)
+
+    def hide_startup_mini_popup(self):
+        if self.is_mini and self.winfo_viewable() and not self.ask_active and not self.notification_active:
+            self.hide_to_tray()
 
     def default_config(self):
         return {
@@ -262,6 +329,7 @@ class AutoAudioApp(ctk.CTk):
             self.overrideredirect(False)
             self.attributes("-topmost", False)
             self.set_settings_geometry()
+            self.after(50, self.apply_dark_title_bar)
 
     def set_mini_geometry(self, extra_height=0):
         left, top, right, bottom = self.get_work_area()
@@ -280,6 +348,20 @@ class AutoAudioApp(ctk.CTk):
 
     def set_settings_geometry(self):
         self.geometry("600x200")
+
+    def apply_dark_title_bar(self):
+        try:
+            hwnd = wintypes.HWND(self.winfo_id())
+            enabled = ctypes.c_int(1)
+            for attribute in (DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1):
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(enabled), ctypes.sizeof(enabled))
+
+            caption_color = ctypes.c_int(0x000000)
+            text_color = ctypes.c_int(0xFFFFFF)
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, ctypes.byref(caption_color), ctypes.sizeof(caption_color))
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, DWMWA_TEXT_COLOR, ctypes.byref(text_color), ctypes.sizeof(text_color))
+        except Exception:
+            pass
 
     def fit_settings_geometry_to_content(self):
         self.update_idletasks()
@@ -326,6 +408,135 @@ class AutoAudioApp(ctk.CTk):
             self.list_drop_targets = {}
             self.draw_settings_ui()
 
+    def create_marquee_label(self, parent, text, font_tuple, text_color, bg_color, height):
+        canvas = tk.Canvas(parent, height=height, width=1, bg=bg_color, bd=0, highlightthickness=0, relief="flat")
+        canvas._marquee_config = {
+            "text": text or "",
+            "font": font_tuple,
+            "text_color": text_color,
+            "bg_color": bg_color,
+            "height": height,
+            "offset": 0,
+            "direction": 1,
+            "pause": MARQUEE_EDGE_PAUSE_TICKS,
+            "job": None,
+        }
+        canvas.bind("<Configure>", lambda event, c=canvas: self.reset_marquee(c))
+        self.render_marquee(canvas)
+        return canvas
+
+    def set_marquee_text(self, canvas, text):
+        if not canvas or not canvas.winfo_exists():
+            return
+        config = canvas._marquee_config
+        config["text"] = text or ""
+        config["offset"] = 0
+        config["direction"] = 1
+        config["pause"] = MARQUEE_EDGE_PAUSE_TICKS
+        self.cancel_marquee(canvas)
+        self.render_marquee(canvas)
+
+    def reset_marquee(self, canvas):
+        if not canvas or not canvas.winfo_exists():
+            return
+        self.cancel_marquee(canvas)
+        config = canvas._marquee_config
+        config["offset"] = 0
+        config["direction"] = 1
+        config["pause"] = MARQUEE_EDGE_PAUSE_TICKS
+        self.render_marquee(canvas)
+
+    def cancel_marquee(self, canvas):
+        try:
+            job = canvas._marquee_config.get("job")
+            if job:
+                canvas.after_cancel(job)
+            canvas._marquee_config["job"] = None
+        except Exception:
+            pass
+
+    def render_marquee(self, canvas):
+        try:
+            if not canvas.winfo_exists():
+                return
+            config = canvas._marquee_config
+            self.cancel_marquee(canvas)
+            width = canvas.winfo_width()
+            height = config["height"]
+            text = config["text"]
+            canvas.delete("all")
+            if width <= 1 or not text:
+                return
+
+            text_font = config["font"]
+            text_width = self.measure_text(text, text_font)
+            max_offset = max(0, text_width - width + MARQUEE_FADE_WIDTH)
+            offset = min(config["offset"], max_offset)
+            config["offset"] = offset
+            canvas.create_text(
+                -offset,
+                height / 2,
+                text=text,
+                fill=config["text_color"],
+                font=text_font,
+                anchor="w",
+            )
+
+            if max_offset > 0:
+                self.draw_marquee_fade(canvas, config["bg_color"], width, height)
+                config["job"] = canvas.after(MARQUEE_INTERVAL_MS, lambda c=canvas: self.advance_marquee(c))
+            else:
+                config["job"] = None
+        except Exception:
+            pass
+
+    def advance_marquee(self, canvas):
+        try:
+            if not canvas.winfo_exists():
+                return
+            config = canvas._marquee_config
+            width = canvas.winfo_width()
+            max_offset = max(0, self.measure_text(config["text"], config["font"]) - width + MARQUEE_FADE_WIDTH)
+            if max_offset <= 0:
+                self.render_marquee(canvas)
+                return
+
+            if config["pause"] > 0:
+                config["pause"] -= 1
+            else:
+                config["offset"] += config["direction"] * MARQUEE_STEP_PX
+                if config["offset"] >= max_offset:
+                    config["offset"] = max_offset
+                    config["direction"] = -1
+                    config["pause"] = MARQUEE_EDGE_PAUSE_TICKS
+                elif config["offset"] <= 0:
+                    config["offset"] = 0
+                    config["direction"] = 1
+                    config["pause"] = MARQUEE_EDGE_PAUSE_TICKS
+            self.render_marquee(canvas)
+        except Exception:
+            pass
+
+    def measure_text(self, text, font_tuple):
+        try:
+            weight = font_tuple[2] if len(font_tuple) > 2 else "normal"
+            text_font = font.Font(family=font_tuple[0], size=font_tuple[1], weight=weight)
+            return text_font.measure(text)
+        except Exception:
+            return len(text) * 8
+
+    def draw_marquee_fade(self, canvas, bg_color, width, height):
+        fade_width = min(MARQUEE_FADE_WIDTH, max(1, width))
+        rgb = tuple(int(bg_color[index:index + 2], 16) for index in (1, 3, 5))
+        image = Image.new("RGBA", (fade_width, height), (*rgb, 0))
+        draw = ImageDraw.Draw(image)
+        for x in range(fade_width):
+            alpha = int(255 * ((x + 1) / fade_width))
+            draw.line((x, 0, x, height), fill=(*rgb, alpha))
+        photo = ImageTk.PhotoImage(image)
+        canvas._marquee_fade_photo = photo
+        canvas.create_image(width - fade_width, 0, image=photo, anchor="nw")
+
     def draw_mini_ui(self):
         self.configure(fg_color="#171717")
         self.bind("<FocusOut>", self.on_mini_focus_out)
@@ -341,24 +552,28 @@ class AutoAudioApp(ctk.CTk):
         header.bind("<B1-Motion>", self.do_move)
 
         ctk.CTkLabel(header, text="Auto Audio", font=("Segoe UI", 11, "bold"), text_color="#D7D7D7").pack(side="left", padx=12)
-        ctk.CTkButton(header, text="x", width=28, height=24, fg_color="transparent", hover_color="#333333", command=self.hide_to_tray).pack(side="right", padx=(0, 4))
-        ctk.CTkButton(header, text="-", width=28, height=24, fg_color="transparent", hover_color="#333333", command=self.hide_to_tray).pack(side="right", padx=2)
+        ctk.CTkButton(header, text="", image=self.icons["close"], width=28, height=24, fg_color="transparent", hover_color="#333333", command=self.hide_to_tray).pack(side="right", padx=(0, 4))
+        ctk.CTkButton(header, text="", image=self.icons["minimize"], width=28, height=24, fg_color="transparent", hover_color="#333333", command=self.hide_to_tray).pack(side="right", padx=2)
         ctk.CTkButton(header, text="", image=self.icons["gear"], width=34, height=24, fg_color="transparent", hover_color="#333333", command=lambda: self.switch_mode("settings")).pack(side="right", padx=4)
 
         content = ctk.CTkFrame(self, fg_color="transparent")
         content.pack(fill="both", expand=True, padx=12, pady=8)
 
-        self.mini_icon_label = ctk.CTkLabel(content, text="APP", image=self.current_detected_icon, width=42, height=42, font=("Segoe UI", 12, "bold"))
+        self.mini_icon_label = ctk.CTkLabel(content, text="", image=self.current_detected_icon, width=MINI_DETECTED_ICON_SIZE, height=MINI_DETECTED_ICON_SIZE, font=("Segoe UI", 12, "bold"))
         self.mini_icon_label.pack(side="left")
 
         text_frame = ctk.CTkFrame(content, fg_color="transparent")
         text_frame.pack(side="left", fill="both", expand=True, padx=12)
 
-        self.mini_name_label = ctk.CTkLabel(text_frame, text=self.current_detected_name, font=("Segoe UI", 14, "bold"), text_color="white", anchor="w")
-        self.mini_name_label.pack(fill="x")
-
-        self.mini_state_label = ctk.CTkLabel(text_frame, text=f"Output: {self.audio_label(self.last_state)}", font=("Segoe UI", 11), text_color="#B8B8B8", anchor="w")
-        self.mini_state_label.pack(fill="x", pady=(2, 0))
+        self.mini_name_canvas = self.create_marquee_label(
+            text_frame,
+            self.current_detected_name,
+            ("Segoe UI", 17, "bold"),
+            "white",
+            "#171717",
+            40,
+        )
+        self.mini_name_canvas.pack(fill="both", expand=True)
 
         button_frame = ctk.CTkFrame(content, fg_color="transparent")
         button_frame.pack(side="right")
@@ -460,6 +675,7 @@ class AutoAudioApp(ctk.CTk):
             fg_color=menu_color,
             button_color=menu_color,
             button_hover_color="#1D4ED8",
+            anchor="center",
         )
         option_menu.pack(fill="x", padx=10, pady=(0, 10))
         self.device_controls[mode] = {"button": device_button, "menu": option_menu}
@@ -481,7 +697,7 @@ class AutoAudioApp(ctk.CTk):
 
         scroll = ctk.CTkScrollableFrame(parent, height=130, fg_color="#101010", border_width=1, border_color="#2A2A2A", corner_radius=8)
         scroll.pack(fill="x", padx=18, pady=(6, 8))
-        self.list_drop_targets[key] = scroll
+        self.list_drop_targets[key] = self.get_scroll_drop_widgets(scroll)
 
         programs = self.config_data[key]
         if not programs:
@@ -501,25 +717,29 @@ class AutoAudioApp(ctk.CTk):
                 icon_label = ctk.CTkLabel(item, text="" if icon else "APP", image=icon, width=42, height=42, font=("Segoe UI", 10, "bold"))
                 icon_label.pack(side="left", padx=(8, 4), pady=5)
 
-                label_text = program.get("name", "Unknown")
-                detail = f"{program.get('match_type', 'process_name')}: {program.get('value', '')}"
                 text_box = ctk.CTkFrame(item, fg_color="transparent")
-                text_box.pack(side="left", fill="x", expand=True, padx=4)
-                name_label = ctk.CTkLabel(text_box, text=label_text, font=("Segoe UI", 12, "bold"), anchor="w")
-                name_label.pack(fill="x")
-                detail_label = ctk.CTkLabel(text_box, text=detail, font=("Segoe UI", 10), text_color="#8F8F8F", anchor="w")
-                detail_label.pack(fill="x")
+                text_box.pack(side="left", fill="both", expand=True, padx=4, pady=5)
+                name_canvas = self.create_marquee_label(
+                    text_box,
+                    program.get("name", "Unknown"),
+                    ("Segoe UI", 14, "bold"),
+                    "white",
+                    "#1C1C1C",
+                    42,
+                )
+                name_canvas.pack(fill="both", expand=True)
 
                 ctk.CTkButton(item, text="", image=self.icons["trash"], width=36, height=30, fg_color="#5B1F1F", hover_color="#7F1D1D", command=lambda p=program, k=key: self.remove_program(k, p)).pack(side="right", padx=(4, 8))
                 ctk.CTkButton(item, text="", image=self.icons["headset"], width=36, height=30, fg_color=self.target_color(program, "headset"), hover_color="#2563EB", command=lambda p=program, k=key: self.set_program_target(k, p, "headset")).pack(side="right", padx=4)
                 ctk.CTkButton(item, text="", image=self.icons["speaker"], width=36, height=30, fg_color=self.target_color(program, "speaker"), hover_color="#2563EB", command=lambda p=program, k=key: self.set_program_target(k, p, "speaker")).pack(side="right", padx=4)
+                ctk.CTkButton(item, text="", image=self.icons["edit"], width=36, height=30, fg_color="#333333", hover_color="#444444", command=lambda p=program, k=key: self.edit_program_name(k, p)).pack(side="right", padx=4)
 
         ctk.CTkButton(parent, text="Add Program", height=34, fg_color="#333333", hover_color="#444444", command=lambda: self.open_add_program_menu(key)).pack(fill="x", padx=22, pady=(0, 12))
 
-    def get_cached_program_icon(self, path, size=PROGRAM_ICON_SIZE):
-        cache_key = (path or "", size)
+    def get_cached_program_icon(self, path, size=PROGRAM_ICON_SIZE, source_size=None, corner_radius=0):
+        cache_key = (path or "", size, source_size or size, corner_radius)
         if cache_key not in self.exe_icon_cache:
-            self.exe_icon_cache[cache_key] = get_icon_from_exe(path, size=size)
+            self.exe_icon_cache[cache_key] = get_icon_from_exe(path, size=size, source_size=source_size, corner_radius=corner_radius)
         return self.exe_icon_cache[cache_key]
 
     def start_program_drag(self, event, source_key, program):
@@ -564,7 +784,10 @@ class AutoAudioApp(ctk.CTk):
             return
 
         source_key = self.drag_data["source_key"]
-        target_key = self.get_drop_target_key(event.x_root, event.y_root)
+        self.update_idletasks()
+        x = self.winfo_pointerx()
+        y = self.winfo_pointery()
+        target_key = self.get_drop_target_key(x, y) or self.get_drop_target_key(event.x_root, event.y_root)
         program = self.drag_data["program"]
         self.drag_data = None
         self.destroy_drag_preview()
@@ -573,26 +796,52 @@ class AutoAudioApp(ctk.CTk):
             return
         self.move_program_between_lists(source_key, target_key, program)
 
+    def get_scroll_drop_widgets(self, scroll):
+        widgets = [scroll]
+        for attr in ("_parent_canvas", "_parent_frame", "_scrollbar"):
+            widget = getattr(scroll, attr, None)
+            if widget is not None:
+                widgets.append(widget)
+        return widgets
+
     def get_drop_target_key(self, x, y):
-        for key, frame in self.list_drop_targets.items():
-            if not frame.winfo_exists():
-                continue
-            left = frame.winfo_rootx()
-            top = frame.winfo_rooty()
-            right = left + frame.winfo_width()
-            bottom = top + frame.winfo_height()
-            if left <= x <= right and top <= y <= bottom:
-                return key
+        for key, widgets in self.list_drop_targets.items():
+            for widget in widgets:
+                if self.point_inside_widget(widget, x, y):
+                    return key
+        return None
+
+    def point_inside_widget(self, widget, x, y):
+        try:
+            if not widget.winfo_exists():
+                return False
+            left = widget.winfo_rootx()
+            top = widget.winfo_rooty()
+            right = left + widget.winfo_width()
+            bottom = top + widget.winfo_height()
+            return left <= x <= right and top <= y <= bottom
+        except Exception:
+            return False
+
+    def program_key(self, program):
+        return program.get("match_type"), program.get("value")
+
+    def find_program_index(self, key, program):
+        target = self.program_key(program)
+        for index, item in enumerate(self.config_data[key]):
+            if self.program_key(item) == target:
+                return index
         return None
 
     def move_program_between_lists(self, source_key, target_key, program):
-        if program not in self.config_data[source_key]:
+        source_index = self.find_program_index(source_key, program)
+        if source_index is None:
             return
         if self.program_exists(target_key, program):
             messagebox.showinfo("Auto Audio", "This program rule already exists in the target list.")
             return
-        self.config_data[source_key].remove(program)
-        self.config_data[target_key].append(program)
+        moved_program = self.config_data[source_key].pop(source_index)
+        self.config_data[target_key].append(moved_program)
         self.save_config()
         self.refresh_program_lists()
         self.update_idletasks()
@@ -644,8 +893,6 @@ class AutoAudioApp(ctk.CTk):
             inactive = "#424242"
             self.speaker_btn.configure(fg_color=active if state == "speaker" else inactive)
             self.headset_btn.configure(fg_color=active if state == "headset" else inactive)
-        if hasattr(self, "mini_state_label") and self.mini_state_label.winfo_exists():
-            self.mini_state_label.configure(text=f"Output: {self.audio_label(state)}")
         self.update_device_controls_ui(state)
 
     def update_device_controls_ui(self, state):
@@ -667,11 +914,11 @@ class AutoAudioApp(ctk.CTk):
         self.current_detected_icon = icon
         if self.ask_active or self.notification_active:
             return
-        if hasattr(self, "mini_name_label") and self.mini_name_label.winfo_exists():
-            shown = name[:24] + ".." if len(name) > 26 else name
-            self.mini_name_label.configure(text=shown)
+        if hasattr(self, "mini_name_canvas") and self.mini_name_canvas.winfo_exists():
+            display_name = name or "No Program Detected"
+            self.set_marquee_text(self.mini_name_canvas, display_name)
         if hasattr(self, "mini_icon_label") and self.mini_icon_label.winfo_exists():
-            self.mini_icon_label.configure(image=icon, text="" if icon else "APP")
+            self.mini_icon_label.configure(image=icon, text="")
 
     def show_audio_change_notification(self, target, program_name=None, icon=None):
         if self.notification_after_id:
@@ -691,12 +938,8 @@ class AutoAudioApp(ctk.CTk):
         if hasattr(self, "mini_icon_label") and self.mini_icon_label.winfo_exists():
             fallback_icon = self.icons["headset"] if target == "headset" else self.icons["speaker"]
             self.mini_icon_label.configure(image=icon or fallback_icon, text="")
-        if hasattr(self, "mini_name_label") and self.mini_name_label.winfo_exists():
-            self.mini_name_label.configure(text="Audio output changed")
-        if hasattr(self, "mini_state_label") and self.mini_state_label.winfo_exists():
-            source = f"{program_name}  |  " if program_name else ""
-            self.mini_state_label.configure(text=f"{source}Output: {self.audio_label(target)}")
-
+        if hasattr(self, "mini_name_canvas") and self.mini_name_canvas.winfo_exists():
+            self.set_marquee_text(self.mini_name_canvas, "Audio output changed")
         self.notification_after_id = self.after(NOTIFICATION_SECONDS * 1000, self.finish_audio_change_notification)
 
     def finish_audio_change_notification(self):
@@ -706,9 +949,11 @@ class AutoAudioApp(ctk.CTk):
             self.hide_to_tray()
 
     def manual_set_audio(self, mode):
-        self.set_audio(mode)
+        if not self.set_audio(mode):
+            return
         self.last_state = mode
         self.manual_override = True
+        self.manual_override_during_detection = self.find_matching_program() is not None
         self.update_mini_buttons_ui(mode)
 
     def set_audio(self, mode):
@@ -740,7 +985,7 @@ class AutoAudioApp(ctk.CTk):
         return False
 
     def set_audio_with_nircmd(self, target):
-        nircmd_path = os.path.join(APP_DIR, "nircmd.exe")
+        nircmd_path = os.path.join(RESOURCE_DIR, "nircmd.exe")
         if not os.path.exists(nircmd_path):
             return False
         try:
@@ -900,7 +1145,9 @@ class AutoAudioApp(ctk.CTk):
         sort_buttons["name"] = ctk.CTkButton(sort_frame, text="A-Z", width=58, height=28)
         sort_buttons["name"].pack(side="left", padx=(0, 6))
         sort_buttons["resource"] = ctk.CTkButton(sort_frame, text="Resource", width=86, height=28)
-        sort_buttons["resource"].pack(side="left")
+        sort_buttons["resource"].pack(side="left", padx=(0, 6))
+        sort_buttons["recent"] = ctk.CTkButton(sort_frame, text="Recent", width=74, height=28)
+        sort_buttons["recent"].pack(side="left")
 
         scroll = ctk.CTkScrollableFrame(picker, fg_color="#101010", corner_radius=8)
         scroll.pack(fill="both", expand=True, padx=16, pady=(0, 16))
@@ -908,6 +1155,7 @@ class AutoAudioApp(ctk.CTk):
         processes = self.list_running_programs()
         sort_buttons["name"].configure(command=lambda: self.render_running_programs(scroll, processes, key, picker, "name", sort_buttons))
         sort_buttons["resource"].configure(command=lambda: self.render_running_programs(scroll, processes, key, picker, "resource", sort_buttons))
+        sort_buttons["recent"].configure(command=lambda: self.render_running_programs(scroll, processes, key, picker, "recent", sort_buttons))
         self.render_running_programs(scroll, processes, key, picker, "name", sort_buttons)
 
     def render_running_programs(self, scroll, processes, key, picker, sort_mode, sort_buttons=None):
@@ -928,6 +1176,8 @@ class AutoAudioApp(ctk.CTk):
 
         if sort_mode == "resource":
             processes = sorted(processes, key=lambda item: (item.get("resource_score", 0), item.get("memory_mb", 0)), reverse=True)
+        elif sort_mode == "recent":
+            processes = sorted(processes, key=lambda item: item.get("create_time", 0), reverse=True)
         else:
             processes = sorted(processes, key=lambda item: item["name"].lower())
 
@@ -947,29 +1197,60 @@ class AutoAudioApp(ctk.CTk):
             ctk.CTkButton(row, text="Add", width=62, height=28, command=lambda p=program: self.pick_running_program(key, p, picker)).pack(side="right", padx=8)
 
     def list_running_programs(self):
-        seen = set()
-        results = []
-        for process in psutil.process_iter(["name", "exe", "cpu_percent", "memory_info"]):
+        current_pid = os.getpid()
+        candidates = []
+        grouped = {}
+
+        for process in psutil.process_iter(["pid", "name", "exe", "create_time"]):
             try:
                 name = process.info.get("name")
-                if not name or name in seen:
+                pid = process.info.get("pid")
+                if not name or pid == current_pid or pid == 0 or name.lower() in IGNORED_RUNNING_PROGRAM_NAMES:
+                    continue
+                process.cpu_percent(None)
+                candidates.append(process)
+            except Exception:
+                continue
+
+        time.sleep(RUNNING_PROGRAM_CPU_SAMPLE_SECONDS)
+
+        for process in candidates:
+            try:
+                name = process.info.get("name")
+                if not name:
                     continue
                 path = process.info.get("exe") or ""
                 memory = process.info.get("memory_info")
+                if memory is None:
+                    memory = process.memory_info()
                 memory_mb = (memory.rss / 1024 / 1024) if memory else 0
-                cpu_percent = float(process.info.get("cpu_percent") or 0)
-                seen.add(name)
-                results.append(
+                raw_cpu_percent = float(process.cpu_percent(None) or 0)
+                cpu_percent = min(100.0, raw_cpu_percent / CPU_CORE_COUNT)
+                if cpu_percent < MIN_RUNNING_PROGRAM_CPU_PERCENT and memory_mb < MIN_RUNNING_PROGRAM_MEMORY_MB:
+                    continue
+
+                item = grouped.setdefault(
+                    name,
                     {
                         "name": name,
                         "path": path,
-                        "cpu_percent": cpu_percent,
-                        "memory_mb": memory_mb,
-                        "resource_score": cpu_percent * 100 + memory_mb,
-                    }
+                        "cpu_percent": 0,
+                        "memory_mb": 0,
+                        "resource_score": 0,
+                        "create_time": 0,
+                    },
                 )
+                item["cpu_percent"] += cpu_percent
+                item["memory_mb"] += memory_mb
+                item["cpu_percent"] = min(100.0, item["cpu_percent"])
+                item["create_time"] = max(item["create_time"], float(process.info.get("create_time") or 0))
+                if path and not item.get("path"):
+                    item["path"] = path
+                item["resource_score"] = item["cpu_percent"] * 100 + item["memory_mb"]
             except Exception:
                 continue
+
+        results = list(grouped.values())
         return sorted(results, key=lambda item: item["name"].lower())
 
     def pick_running_program(self, key, program, picker):
@@ -984,6 +1265,42 @@ class AutoAudioApp(ctk.CTk):
             },
         )
         picker.destroy()
+
+    def edit_program_name(self, key, program):
+        index = self.find_program_index(key, program)
+        if index is None:
+            return
+
+        editor = ctk.CTkToplevel(self)
+        editor.title("Edit Program Name")
+        editor.geometry("360x150+760+300")
+        editor.transient(self)
+        editor.grab_set()
+        editor.configure(fg_color="#171717")
+
+        ctk.CTkLabel(editor, text="Edit Program Name", font=("Segoe UI", 16, "bold"), text_color="white").pack(anchor="w", padx=18, pady=(18, 8))
+        entry = ctk.CTkEntry(editor, height=34)
+        entry.pack(fill="x", padx=18)
+        entry.insert(0, self.config_data[key][index].get("name", ""))
+        entry.focus_set()
+        entry.select_range(0, "end")
+
+        button_row = ctk.CTkFrame(editor, fg_color="transparent")
+        button_row.pack(fill="x", padx=18, pady=16)
+
+        def save_name():
+            new_name = entry.get().strip()
+            if not new_name:
+                return
+            self.config_data[key][index]["name"] = new_name
+            self.save_config()
+            editor.destroy()
+            self.refresh_program_lists()
+
+        ctk.CTkButton(button_row, text="Cancel", width=92, height=32, fg_color="#333333", hover_color="#444444", command=editor.destroy).pack(side="right")
+        ctk.CTkButton(button_row, text="Save", width=92, height=32, fg_color=ACTIVE_COLOR, hover_color="#1D4ED8", command=save_name).pack(side="right", padx=(0, 8))
+        editor.bind("<Return>", lambda event: save_name())
+        editor.bind("<Escape>", lambda event: editor.destroy())
 
     def add_program(self, key, program):
         if self.program_exists(key, program):
@@ -1017,28 +1334,38 @@ class AutoAudioApp(ctk.CTk):
             found = self.find_matching_program()
             if found:
                 list_key, program, process_path = found
-                icon = self.get_cached_program_icon(process_path or program.get("path"), size=40)
+                icon = self.get_cached_program_icon(
+                    process_path or program.get("path"),
+                    size=MINI_DETECTED_ICON_SIZE,
+                    source_size=MINI_DETECTED_ICON_SOURCE_SIZE,
+                    corner_radius=MINI_DETECTED_ICON_CORNER_RADIUS,
+                )
                 target = program.get("target_audio", "headset")
                 self.after(0, lambda p=program, i=icon: self.update_detect_ui(p.get("name", "Unknown"), i))
 
-                if list_key == "ask_list":
+                if self.manual_override:
+                    pass
+                elif list_key == "ask_list":
                     self.after(0, lambda p=program: self.show_ask_prompt(p))
                 elif self.last_state != target:
-                    self.manual_override = False
                     if self.set_audio(target):
                         self.last_state = target
                         self.after(0, lambda t=target: self.update_mini_buttons_ui(t))
                         self.after(0, lambda t=target, p=program, i=icon: self.show_audio_change_notification(t, p.get("name", "Program"), i))
-                else:
-                    self.manual_override = False
             else:
                 self.pending_prompt_key = None
-                if self.last_state == "headset" and not self.manual_override:
+                should_restore_speaker = self.last_state == "headset" and (not self.manual_override or self.manual_override_during_detection)
+                if should_restore_speaker:
                     if self.set_audio("speaker"):
                         self.last_state = "speaker"
+                        self.manual_override = False
+                        self.manual_override_during_detection = False
                         self.after(0, lambda: self.update_mini_buttons_ui("speaker"))
-                        self.after(0, lambda: self.show_audio_change_notification("speaker", "No Program", None))
-                self.after(0, lambda: self.update_detect_ui("No Program", None))
+                        self.after(0, lambda: self.show_audio_change_notification("speaker", "No Program Detected", None))
+                elif self.manual_override_during_detection:
+                    self.manual_override = False
+                    self.manual_override_during_detection = False
+                self.after(0, lambda: self.update_detect_ui("No Program Detected", None))
 
             time.sleep(CHECK_INTERVAL_SECONDS)
 
@@ -1133,7 +1460,12 @@ class AutoAudioApp(ctk.CTk):
         self.manual_override = False
         self.update_mini_buttons_ui(target)
         program_name = self.ask_program.get("name", "Program") if self.ask_program else "Program"
-        icon = self.get_cached_program_icon(self.ask_program.get("path"), size=40) if self.ask_program else None
+        icon = self.get_cached_program_icon(
+            self.ask_program.get("path"),
+            size=MINI_DETECTED_ICON_SIZE,
+            source_size=MINI_DETECTED_ICON_SOURCE_SIZE,
+            corner_radius=MINI_DETECTED_ICON_CORNER_RADIUS,
+        ) if self.ask_program else None
         self.dismiss_ask_prompt(hide=False)
         self.show_audio_change_notification(target, program_name, icon)
 
