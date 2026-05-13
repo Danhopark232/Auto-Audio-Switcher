@@ -26,7 +26,7 @@ RESOURCE_DIR = getattr(sys, "_MEIPASS", APP_DIR)
 CONFIG_FILE = os.path.join(APP_DIR, "config.json")
 ICON_DIR = os.path.join(RESOURCE_DIR, "assets", "icons")
 CHECK_INTERVAL_SECONDS = 2
-ASK_TIMEOUT_SECONDS = 15
+ASK_TIMEOUT_SECONDS = 25
 NOTIFICATION_SECONDS = 4
 STARTUP_MINI_POPUP_SECONDS = 3
 MINI_WIDTH = 420
@@ -1657,13 +1657,16 @@ class AutoAudioApp(ctk.CTk):
     def show_ask_prompt(self, program, target_override=None, prompt_key_override=None):
         target = target_override or program.get("target_audio", "headset")
         prompt_key = prompt_key_override or self.program_prompt_key(program, target)
-        if self.pending_prompt_key == prompt_key or self.last_state == target:
+        if self.pending_prompt_key == prompt_key:
             return
 
         self.pending_prompt_key = prompt_key
         self.ask_active = True
         self.ask_program = program
         self.ask_target = target
+        if target == "headset" and self.last_state == "headset":
+            self.ask_restore_program = program
+            self.ask_restore_prompt_key = None
         self.switch_mode("mini")
         self.animate_mini_in()
 

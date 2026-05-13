@@ -3,10 +3,10 @@
     "speaker_name": "Speakers(2- Pebble V3)",
     "auto_list": [
         {
-            "name": "DCS",
+            "name": "DCS.exe",
             "match_type": "process_name",
             "value": "DCS.exe",
-            "path": "F:/Games/DCS World/bin/DCS.exe",
+            "path": "F:\\Games\\DCS World\\bin\\DCS.exe",
             "icon_path": "",
             "target_audio": "headset"
         }
