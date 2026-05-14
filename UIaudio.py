@@ -1,6 +1,7 @@
 import json
 import math
 import os
+import queue
 import subprocess
 import sys
 import threading
@@ -26,7 +27,7 @@ RESOURCE_DIR = getattr(sys, "_MEIPASS", APP_DIR)
 CONFIG_FILE = os.path.join(APP_DIR, "config.json")
 ICON_DIR = os.path.join(RESOURCE_DIR, "assets", "icons")
 CHECK_INTERVAL_SECONDS = 2
-ASK_TIMEOUT_SECONDS = 15
+ASK_TIMEOUT_SECONDS = 25
 NOTIFICATION_SECONDS = 4
 STARTUP_MINI_POPUP_SECONDS = 3
 MINI_WIDTH = 420
@@ -34,9 +35,9 @@ MINI_HEIGHT = 94
 MINI_ANIMATION_STEPS = 12
 MINI_ANIMATION_INTERVAL_MS = 14
 SETTINGS_DEFAULT_WIDTH = 680
-SETTINGS_DEFAULT_HEIGHT = 760
+SETTINGS_DEFAULT_HEIGHT = 840
 SETTINGS_MIN_WIDTH = 680
-SETTINGS_MIN_HEIGHT = 700
+SETTINGS_MIN_HEIGHT = 780
 PROGRAM_ICON_SIZE = 32
 MINI_DETECTED_ICON_SIZE = 52
 MINI_DETECTED_ICON_SOURCE_SIZE = 128
@@ -55,6 +56,8 @@ IGNORED_RUNNING_PROGRAM_NAMES = {
 }
 APP_NAME = "AutoAudioSwitcher"
 ACTIVE_COLOR = "#2563EB"
+MIC_MUTED_COLOR = "#7F1D1D"
+MIC_ACTIVE_COLOR = "#334155"
 DEVICE_ACTIVE_COLOR = "#3B82F6"
 DEVICE_INACTIVE_COLOR = "#1E293B"
 SPI_GETWORKAREA = 0x0030
@@ -62,6 +65,85 @@ DWMWA_USE_IMMERSIVE_DARK_MODE = 20
 DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19
 DWMWA_CAPTION_COLOR = 35
 DWMWA_TEXT_COLOR = 36
+WH_KEYBOARD_LL = 13
+INPUT_KEYBOARD = 1
+WM_KEYDOWN = 0x0100
+WM_KEYUP = 0x0101
+WM_SYSKEYDOWN = 0x0104
+WM_SYSKEYUP = 0x0105
+LLKHF_INJECTED = 0x10
+KEYEVENTF_KEYUP = 0x0002
+MAPVK_VK_TO_VSC = 0
+DEFAULT_MICROPHONE_LABEL = "Default Microphone"
+HOTKEY_NONE_LABEL = "None"
+HOTKEY_OPTIONS = [HOTKEY_NONE_LABEL] + [f"F{index}" for index in range(1, 25)] + [chr(code) for code in range(ord("A"), ord("Z") + 1)]
+HOTKEY_VK = {
+    **{f"F{index}": 0x6F + index for index in range(1, 13)},
+    **{f"F{index}": 0x7B + (index - 12) for index in range(13, 25)},
+    **{chr(code): code for code in range(ord("A"), ord("Z") + 1)},
+}
+HHOOK = getattr(wintypes, "HHOOK", wintypes.HANDLE)
+HINSTANCE = getattr(wintypes, "HINSTANCE", wintypes.HANDLE)
+HMODULE = getattr(wintypes, "HMODULE", wintypes.HANDLE)
+ULONG_PTR = ctypes.c_ulonglong if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_ulong
+WPARAM = ctypes.c_size_t
+LPARAM = ctypes.c_ssize_t
+LRESULT = ctypes.c_ssize_t
+LOW_LEVEL_KEYBOARD_PROC = ctypes.WINFUNCTYPE(LRESULT, ctypes.c_int, WPARAM, LPARAM)
+
+
+class KBDLLHOOKSTRUCT(ctypes.Structure):
+    _fields_ = [
+        ("vkCode", wintypes.DWORD),
+        ("scanCode", wintypes.DWORD),
+        ("flags", wintypes.DWORD),
+        ("time", wintypes.DWORD),
+        ("dwExtraInfo", ctypes.c_void_p),
+    ]
+
+
+class KEYBDINPUT(ctypes.Structure):
+    _fields_ = [
+        ("wVk", wintypes.WORD),
+        ("wScan", wintypes.WORD),
+        ("dwFlags", wintypes.DWORD),
+        ("time", wintypes.DWORD),
+        ("dwExtraInfo", ULONG_PTR),
+    ]
+
+
+class MOUSEINPUT(ctypes.Structure):
+    _fields_ = [
+        ("dx", wintypes.LONG),
+        ("dy", wintypes.LONG),
+        ("mouseData", wintypes.DWORD),
+        ("dwFlags", wintypes.DWORD),
+        ("time", wintypes.DWORD),
+        ("dwExtraInfo", ULONG_PTR),
+    ]
+
+
+class HARDWAREINPUT(ctypes.Structure):
+    _fields_ = [
+        ("uMsg", wintypes.DWORD),
+        ("wParamL", wintypes.WORD),
+        ("wParamH", wintypes.WORD),
+    ]
+
+
+class INPUT_UNION(ctypes.Union):
+    _fields_ = [
+        ("mi", MOUSEINPUT),
+        ("ki", KEYBDINPUT),
+        ("hi", HARDWAREINPUT),
+    ]
+
+
+class INPUT(ctypes.Structure):
+    _fields_ = [
+        ("type", wintypes.DWORD),
+        ("union", INPUT_UNION),
+    ]
 
 
 def apply_rounded_corners(image, radius):
@@ -164,6 +246,17 @@ def draw_ui_icon_image(kind, size=64, color=(245, 245, 245, 255)):
         draw.rounded_rectangle((size * 0.72, size * 0.46, size * 0.88, size * 0.76), radius=width, fill=c)
         draw.line((size * 0.76, size * 0.75, size * 0.58, size * 0.84), fill=c, width=width)
         draw.ellipse((size * 0.52, size * 0.78, size * 0.64, size * 0.90), fill=c)
+    elif kind == "mic":
+        draw.rounded_rectangle((size * 0.36, size * 0.16, size * 0.64, size * 0.58), radius=width, outline=c, width=width)
+        draw.arc((size * 0.24, size * 0.34, size * 0.76, size * 0.78), 0, 180, fill=c, width=width)
+        draw.line((size * 0.50, size * 0.76, size * 0.50, size * 0.90), fill=c, width=width)
+        draw.line((size * 0.34, size * 0.90, size * 0.66, size * 0.90), fill=c, width=width)
+    elif kind == "mic_muted":
+        draw.rounded_rectangle((size * 0.36, size * 0.16, size * 0.64, size * 0.58), radius=width, outline=c, width=width)
+        draw.arc((size * 0.24, size * 0.34, size * 0.76, size * 0.78), 0, 180, fill=c, width=width)
+        draw.line((size * 0.50, size * 0.76, size * 0.50, size * 0.90), fill=c, width=width)
+        draw.line((size * 0.34, size * 0.90, size * 0.66, size * 0.90), fill=c, width=width)
+        draw.line((size * 0.20, size * 0.22, size * 0.80, size * 0.82), fill=c, width=width)
     elif kind == "gear":
         center = size / 2
         points = []
@@ -208,7 +301,7 @@ def draw_ui_icon_image(kind, size=64, color=(245, 245, 245, 255)):
 
 def ensure_icon_assets():
     os.makedirs(ICON_DIR, exist_ok=True)
-    for name in ("speaker", "headset", "gear", "trash", "handle", "minimize", "close", "edit"):
+    for name in ("speaker", "headset", "gear", "trash", "handle", "minimize", "close", "edit", "mic", "mic_muted"):
         path = os.path.join(ICON_DIR, f"{name}.png")
         if not os.path.exists(path):
             draw_ui_icon_image(name, size=128).save(path)
@@ -234,6 +327,7 @@ class AutoAudioApp(ctk.CTk):
         self.last_state = "speaker"
         self.manual_override = False
         self.manual_override_during_detection = False
+        self.mic_muted = False
         self.current_detected_name = "No Program Detected"
         self.current_detected_icon = None
         self.pending_prompt_key = None
@@ -247,6 +341,12 @@ class AutoAudioApp(ctk.CTk):
         self.notification_active = False
         self.drag_data = None
         self.mini_animation_after_id = None
+        self.mini_pinned_by_user = False
+        self.keyboard_hook = None
+        self.keyboard_hook_proc = None
+        self.keyboard_event_queue = queue.SimpleQueue()
+        self.keyboard_event_after_id = None
+        self.microphone_hotkey_down = False
         self.list_drop_targets = {}
         self.exe_icon_cache = {}
         self.device_controls = {}
@@ -261,6 +361,8 @@ class AutoAudioApp(ctk.CTk):
             "minimize": make_ui_icon("minimize", 16),
             "close": make_ui_icon("close", 16),
             "edit": make_ui_icon("edit", 28),
+            "mic": make_ui_icon("mic", 28),
+            "mic_muted": make_ui_icon("mic_muted", 28),
         }
         self.audio_device_names = self.get_output_device_names()
 
@@ -270,6 +372,8 @@ class AutoAudioApp(ctk.CTk):
         self.set_ui_mode("mini")
         self.draw_ui()
         self.start_tray()
+        self.install_keyboard_hook()
+        self.start_keyboard_event_polling()
 
         if start_mode == "settings":
             self.switch_mode("settings")
@@ -286,7 +390,7 @@ class AutoAudioApp(ctk.CTk):
         self.after(STARTUP_MINI_POPUP_SECONDS * 1000, self.hide_startup_mini_popup)
 
     def hide_startup_mini_popup(self):
-        if self.is_mini and self.winfo_viewable() and not self.ask_active and not self.notification_active:
+        if self.is_mini and self.winfo_viewable() and not self.ask_active and not self.notification_active and not self.mini_pinned_by_user:
             self.hide_to_tray()
 
     def default_config(self):
@@ -297,6 +401,8 @@ class AutoAudioApp(ctk.CTk):
             "ask_list": [],
             "start_with_windows": False,
             "settings_geometry": "",
+            "microphone_name": DEFAULT_MICROPHONE_LABEL,
+            "microphone_mute_hotkey": "",
         }
 
     def load_config(self):
@@ -526,6 +632,30 @@ class AutoAudioApp(ctk.CTk):
         except Exception:
             return []
 
+    def get_input_device_names(self):
+        try:
+            import warnings
+
+            warnings.filterwarnings("ignore")
+            from pycaw.pycaw import AudioUtilities
+            from pycaw.utils import AudioDeviceState
+
+            input_devices = []
+            for device in AudioUtilities.GetAllDevices():
+                try:
+                    if AudioUtilities.GetEndpointDataFlow(device.id) != "eCapture":
+                        continue
+                    if getattr(device, "state", None) != AudioDeviceState.Active:
+                        continue
+                    name = getattr(device, "FriendlyName", None) or getattr(device, "friendly_name", None)
+                    if name and name not in input_devices:
+                        input_devices.append(name)
+                except Exception:
+                    continue
+            return input_devices
+        except Exception:
+            return []
+
     def draw_ui(self):
         self.unbind("<FocusOut>")
         for widget in self.winfo_children():
@@ -707,6 +837,9 @@ class AutoAudioApp(ctk.CTk):
         button_frame = ctk.CTkFrame(content, fg_color="transparent")
         button_frame.pack(side="right")
 
+        self.mic_btn = ctk.CTkButton(button_frame, text="", image=self.icons["mic"], width=52, height=42, corner_radius=8, command=self.toggle_microphone_mute)
+        self.mic_btn.pack(side="left", padx=(0, 6))
+
         self.speaker_btn = ctk.CTkButton(button_frame, text="", image=self.icons["speaker"], width=52, height=42, corner_radius=8, command=lambda: self.manual_set_audio("speaker"))
         self.speaker_btn.pack(side="left", padx=(0, 6))
 
@@ -714,6 +847,7 @@ class AutoAudioApp(ctk.CTk):
         self.headset_btn.pack(side="left")
 
         self.update_mini_buttons_ui(self.last_state)
+        self.refresh_microphone_mute_ui()
 
     def draw_ask_mini_ui(self):
         target = self.ask_target or "headset"
@@ -745,6 +879,8 @@ class AutoAudioApp(ctk.CTk):
         self.configure(fg_color="#171717")
         self.audio_device_names = self.get_output_device_names()
         device_options = self.build_device_options()
+        self.microphone_device_names = self.get_input_device_names()
+        microphone_options = self.build_microphone_options()
 
         ctk.CTkLabel(self, text="Auto Audio Settings", font=("Segoe UI", 22, "bold"), text_color="white").pack(pady=(22, 14))
 
@@ -753,6 +889,8 @@ class AutoAudioApp(ctk.CTk):
 
         self.create_device_box(device_frame, "Speaker", "speaker", device_options).pack(side="left", fill="x", expand=True, padx=(0, 6))
         self.create_device_box(device_frame, "Headset", "headset", device_options).pack(side="left", fill="x", expand=True, padx=(6, 0))
+
+        self.create_microphone_settings(microphone_options)
 
         ctk.CTkLabel(self, text="Program List", font=("Segoe UI", 16, "bold"), text_color="white").pack(anchor="w", padx=22, pady=(20, 8))
         self.program_list_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -779,6 +917,16 @@ class AutoAudioApp(ctk.CTk):
             if name and name not in options:
                 options.insert(0, name)
         return options or ["No audio device found"]
+
+    def build_microphone_options(self):
+        options = [DEFAULT_MICROPHONE_LABEL]
+        for name in self.microphone_device_names:
+            if name and name not in options:
+                options.append(name)
+        selected = self.config_data.get("microphone_name") or DEFAULT_MICROPHONE_LABEL
+        if selected and selected not in options:
+            options.append(selected)
+        return options
 
     def create_device_box(self, parent, title, mode, device_options):
         frame = ctk.CTkFrame(parent, fg_color="#242424", corner_radius=8)
@@ -809,6 +957,80 @@ class AutoAudioApp(ctk.CTk):
         option_menu.pack(fill="x", padx=10, pady=(0, 10))
         self.device_controls[mode] = {"button": device_button, "menu": option_menu}
         return frame
+
+    def create_microphone_settings(self, microphone_options):
+        frame = ctk.CTkFrame(self, fg_color="#242424", corner_radius=8)
+        frame.pack(fill="x", padx=18, pady=(12, 0))
+
+        ctk.CTkLabel(frame, text="Microphone", font=("Segoe UI", 13, "bold"), text_color="#CFCFCF").pack(anchor="w", padx=12, pady=(10, 6))
+
+        top_row = ctk.CTkFrame(frame, fg_color="transparent")
+        top_row.pack(fill="x", padx=10, pady=(0, 8))
+
+        selected_microphone = self.config_data.get("microphone_name") if self.config_data.get("microphone_name") in microphone_options else microphone_options[0]
+        self.mic_var = ctk.StringVar(value=selected_microphone)
+        ctk.CTkOptionMenu(
+            top_row,
+            values=microphone_options,
+            variable=self.mic_var,
+            height=30,
+            fg_color=DEVICE_INACTIVE_COLOR,
+            button_color=DEVICE_INACTIVE_COLOR,
+            button_hover_color="#334155",
+            anchor="center",
+        ).pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+        current_hotkey = self.config_data.get("microphone_mute_hotkey", "") or HOTKEY_NONE_LABEL
+        self.mic_hotkey_var = ctk.StringVar(value=current_hotkey if current_hotkey in HOTKEY_OPTIONS else HOTKEY_NONE_LABEL)
+        ctk.CTkOptionMenu(
+            top_row,
+            values=HOTKEY_OPTIONS,
+            variable=self.mic_hotkey_var,
+            width=96,
+            height=30,
+            fg_color="#333333",
+            button_color="#333333",
+            button_hover_color="#444444",
+            anchor="center",
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            top_row,
+            text="Detect Key",
+            width=100,
+            height=30,
+            fg_color="#333333",
+            hover_color="#444444",
+            command=self.open_microphone_hotkey_capture,
+        ).pack(side="left")
+
+        ctk.CTkLabel(
+            frame,
+            text="Hotkey set: mic button sends hotkey. None: mic button mutes selected input.",
+            font=("Segoe UI", 10),
+            text_color="#8F8F8F",
+            anchor="w",
+        ).pack(fill="x", padx=12, pady=(0, 10))
+
+    def open_microphone_hotkey_capture(self):
+        capture = ctk.CTkToplevel(self)
+        capture.title("Detect Hotkey")
+        capture.geometry("320x140+800+340")
+        capture.transient(self)
+        capture.grab_set()
+        capture.configure(fg_color="#171717")
+
+        ctk.CTkLabel(capture, text="Press a key", font=("Segoe UI", 16, "bold"), text_color="white").pack(pady=(24, 6))
+        ctk.CTkLabel(capture, text="F13-F24 can be selected from the dropdown.", font=("Segoe UI", 11), text_color="#B8B8B8").pack()
+
+        def capture_key(event):
+            key_name = self.normalize_hotkey_name(event.keysym)
+            if key_name in HOTKEY_VK:
+                self.mic_hotkey_var.set(key_name)
+                capture.destroy()
+
+        capture.bind("<KeyPress>", capture_key)
+        capture.after(100, capture.focus_force)
 
     def refresh_program_lists(self):
         if not hasattr(self, "program_list_frame") or not self.program_list_frame.winfo_exists():
@@ -1012,6 +1234,8 @@ class AutoAudioApp(ctk.CTk):
     def hide_mini_if_focus_left(self):
         if not self.is_mini or not self.winfo_viewable():
             return
+        if self.mini_pinned_by_user:
+            return
         if self.ask_active or self.notification_active:
             return
         focused = self.focus_get()
@@ -1021,8 +1245,12 @@ class AutoAudioApp(ctk.CTk):
     def start_move(self, event):
         self._drag_x = event.x
         self._drag_y = event.y
+        self._drag_started = False
 
     def do_move(self, event):
+        if self.is_mini:
+            self._drag_started = True
+            self.mini_pinned_by_user = True
         self.geometry(f"+{event.x_root - self._drag_x}+{event.y_root - self._drag_y}")
 
     def audio_label(self, state):
@@ -1034,6 +1262,7 @@ class AutoAudioApp(ctk.CTk):
             inactive = "#424242"
             self.speaker_btn.configure(fg_color=active if state == "speaker" else inactive)
             self.headset_btn.configure(fg_color=active if state == "headset" else inactive)
+        self.update_microphone_button_ui()
         self.update_device_controls_ui(state)
 
     def update_device_controls_ui(self, state):
@@ -1093,7 +1322,7 @@ class AutoAudioApp(ctk.CTk):
     def finish_audio_change_notification(self):
         self.notification_active = False
         self.notification_after_id = None
-        if self.is_mini and self.winfo_viewable() and not self.ask_active:
+        if self.is_mini and self.winfo_viewable() and not self.ask_active and not self.mini_pinned_by_user:
             self.animate_mini_out()
 
     def manual_set_audio(self, mode):
@@ -1116,6 +1345,228 @@ class AutoAudioApp(ctk.CTk):
         if self.set_audio_with_pycaw(target):
             return True
         return self.set_audio_with_nircmd(target)
+
+    def get_microphone_volume(self, name=None):
+        try:
+            import comtypes
+            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+
+            if not name or name == DEFAULT_MICROPHONE_LABEL:
+                device = AudioUtilities.GetMicrophone()
+                if not device:
+                    return None
+                interface = device.Activate(IAudioEndpointVolume._iid_, comtypes.CLSCTX_ALL, None)
+                return interface.QueryInterface(IAudioEndpointVolume)
+
+            for device in AudioUtilities.GetAllDevices():
+                try:
+                    if AudioUtilities.GetEndpointDataFlow(device.id) != "eCapture":
+                        continue
+                    friendly_name = getattr(device, "FriendlyName", None) or getattr(device, "friendly_name", None)
+                    if friendly_name == name:
+                        return device.EndpointVolume
+                except Exception:
+                    continue
+        except Exception as exc:
+            print(f"microphone lookup failed: {exc}")
+        return None
+
+    def get_selected_microphone_name(self):
+        return self.config_data.get("microphone_name") or DEFAULT_MICROPHONE_LABEL
+
+    def get_microphone_muted(self):
+        volume = self.get_microphone_volume(self.get_selected_microphone_name())
+        if volume is None:
+            return None
+        try:
+            return bool(volume.GetMute())
+        except Exception as exc:
+            print(f"microphone mute read failed: {exc}")
+            return None
+
+    def set_microphone_muted(self, muted):
+        volume = self.get_microphone_volume(self.get_selected_microphone_name())
+        if volume is None:
+            return False
+        try:
+            volume.SetMute(1 if muted else 0, None)
+            self.mic_muted = bool(muted)
+            self.update_microphone_button_ui()
+            return True
+        except Exception as exc:
+            print(f"microphone mute switch failed: {exc}")
+            return False
+
+    def toggle_microphone_mute(self):
+        hotkey = self.config_data.get("microphone_mute_hotkey", "")
+        if hotkey:
+            if self.send_hotkey(hotkey):
+                self.mic_muted = not self.mic_muted
+                self.update_microphone_button_ui()
+            return
+
+        muted = self.get_microphone_muted()
+        if muted is None:
+            return
+        self.set_microphone_muted(not muted)
+
+    def refresh_microphone_mute_ui(self):
+        if self.config_data.get("microphone_mute_hotkey", ""):
+            self.update_microphone_button_ui()
+            return
+
+        muted = self.get_microphone_muted()
+        if muted is not None:
+            self.mic_muted = muted
+        self.update_microphone_button_ui()
+
+    def update_microphone_button_ui(self):
+        if hasattr(self, "mic_btn") and self.mic_btn.winfo_exists():
+            muted = bool(self.mic_muted)
+            self.mic_btn.configure(
+                image=self.icons["mic_muted"] if muted else self.icons["mic"],
+                fg_color=MIC_MUTED_COLOR if muted else MIC_ACTIVE_COLOR,
+                hover_color="#991B1B" if muted else "#475569",
+            )
+
+    def normalize_hotkey_name(self, key_name):
+        if not key_name:
+            return ""
+        key_name = key_name.upper()
+        aliases = {
+            "ESCAPE": "ESC",
+            "RETURN": "ENTER",
+            "PRIOR": "PAGEUP",
+            "NEXT": "PAGEDOWN",
+        }
+        return aliases.get(key_name, key_name)
+
+    def configure_keyboard_api(self):
+        if hasattr(self, "user32") and hasattr(self, "user32_callback") and hasattr(self, "kernel32"):
+            return
+
+        self.user32 = ctypes.WinDLL("user32", use_last_error=True)
+        self.user32_callback = ctypes.PyDLL("user32", use_last_error=True)
+        self.kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+        self.user32.SetWindowsHookExW.argtypes = [ctypes.c_int, LOW_LEVEL_KEYBOARD_PROC, HINSTANCE, wintypes.DWORD]
+        self.user32.SetWindowsHookExW.restype = HHOOK
+        self.user32.CallNextHookEx.argtypes = [HHOOK, ctypes.c_int, WPARAM, LPARAM]
+        self.user32.CallNextHookEx.restype = LRESULT
+        self.user32_callback.CallNextHookEx.argtypes = [HHOOK, ctypes.c_int, WPARAM, LPARAM]
+        self.user32_callback.CallNextHookEx.restype = LRESULT
+        self.user32.UnhookWindowsHookEx.argtypes = [HHOOK]
+        self.user32.UnhookWindowsHookEx.restype = wintypes.BOOL
+        self.user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
+        self.user32.SendInput.restype = wintypes.UINT
+        self.user32.MapVirtualKeyW.argtypes = [wintypes.UINT, wintypes.UINT]
+        self.user32.MapVirtualKeyW.restype = wintypes.UINT
+
+        self.kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
+        self.kernel32.GetModuleHandleW.restype = HMODULE
+
+    def send_hotkey(self, hotkey):
+        hotkey = self.normalize_hotkey_name(hotkey)
+        vk = HOTKEY_VK.get(hotkey)
+        if not vk:
+            return False
+        try:
+            self.configure_keyboard_api()
+            scan_code = self.user32.MapVirtualKeyW(vk, MAPVK_VK_TO_VSC)
+            inputs = (INPUT * 2)()
+            inputs[0].type = INPUT_KEYBOARD
+            inputs[0].union.ki = KEYBDINPUT(vk, scan_code, 0, 0, 0)
+            inputs[1].type = INPUT_KEYBOARD
+            inputs[1].union.ki = KEYBDINPUT(vk, scan_code, KEYEVENTF_KEYUP, 0, 0)
+
+            sent = self.user32.SendInput(2, inputs, ctypes.sizeof(INPUT))
+            if sent != 2:
+                print(f"hotkey send failed: SendInput sent {sent}/2, error {ctypes.get_last_error()}")
+                return False
+            return True
+        except Exception as exc:
+            print(f"hotkey send failed: {exc}")
+            return False
+
+    def install_keyboard_hook(self):
+        if self.keyboard_hook:
+            return
+
+        self.configure_keyboard_api()
+
+        def keyboard_proc(n_code, w_param, l_param):
+            try:
+                if n_code == 0:
+                    event = int(w_param)
+                    data = ctypes.cast(ctypes.c_void_p(l_param), ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
+                    configured_hotkey = self.config_data.get("microphone_mute_hotkey", "")
+                    configured_vk = HOTKEY_VK.get(configured_hotkey)
+
+                    if configured_vk and data.vkCode == configured_vk:
+                        if event in (WM_KEYDOWN, WM_SYSKEYDOWN):
+                            if not self.microphone_hotkey_down and not (data.flags & LLKHF_INJECTED):
+                                self.microphone_hotkey_down = True
+                                self.keyboard_event_queue.put("microphone_hotkey")
+                        elif event in (WM_KEYUP, WM_SYSKEYUP):
+                            self.microphone_hotkey_down = False
+            except Exception:
+                pass
+            return self.user32_callback.CallNextHookEx(self.keyboard_hook, n_code, w_param, l_param)
+
+        self.keyboard_hook_proc = LOW_LEVEL_KEYBOARD_PROC(keyboard_proc)
+        module_handle = self.kernel32.GetModuleHandleW(None)
+        self.keyboard_hook = self.user32.SetWindowsHookExW(
+            WH_KEYBOARD_LL,
+            self.keyboard_hook_proc,
+            module_handle,
+            0,
+        )
+        if not self.keyboard_hook:
+            module_error = ctypes.get_last_error()
+            self.keyboard_hook = self.user32.SetWindowsHookExW(
+                WH_KEYBOARD_LL,
+                self.keyboard_hook_proc,
+                None,
+                0,
+            )
+        if not self.keyboard_hook:
+            hook_error = ctypes.get_last_error()
+            self.keyboard_hook_proc = None
+            print(f"keyboard hook install failed: error {hook_error or module_error}")
+
+    def start_keyboard_event_polling(self):
+        if self.keyboard_event_after_id is None and self.is_running:
+            self.keyboard_event_after_id = self.after(50, self.process_keyboard_events)
+
+    def process_keyboard_events(self):
+        self.keyboard_event_after_id = None
+        while True:
+            try:
+                event_name = self.keyboard_event_queue.get_nowait()
+            except queue.Empty:
+                break
+
+            if event_name == "microphone_hotkey":
+                self.handle_microphone_hotkey_pressed()
+
+        if self.is_running:
+            self.keyboard_event_after_id = self.after(50, self.process_keyboard_events)
+
+    def uninstall_keyboard_hook(self):
+        if self.keyboard_hook:
+            try:
+                self.configure_keyboard_api()
+                self.user32.UnhookWindowsHookEx(self.keyboard_hook)
+            except Exception:
+                pass
+            self.keyboard_hook = None
+            self.keyboard_hook_proc = None
+
+    def handle_microphone_hotkey_pressed(self):
+        if not self.config_data.get("microphone_mute_hotkey", ""):
+            return
+        self.mic_muted = not self.mic_muted
+        self.update_microphone_button_ui()
 
     def set_audio_with_pycaw(self, target):
         try:
@@ -1154,6 +1605,12 @@ class AutoAudioApp(ctk.CTk):
             self.config_data["speaker_name"] = self.sp_var.get()
         if hasattr(self, "hs_var"):
             self.config_data["headset_name"] = self.hs_var.get()
+        if hasattr(self, "mic_var"):
+            self.config_data["microphone_name"] = self.mic_var.get()
+        if hasattr(self, "mic_hotkey_var"):
+            hotkey = self.mic_hotkey_var.get()
+            self.config_data["microphone_mute_hotkey"] = "" if hotkey == HOTKEY_NONE_LABEL else hotkey
+            self.microphone_hotkey_down = False
         if hasattr(self, "startup_var"):
             self.config_data["start_with_windows"] = bool(self.startup_var.get())
             self.set_startup_enabled(self.config_data["start_with_windows"])
@@ -1657,13 +2114,16 @@ class AutoAudioApp(ctk.CTk):
     def show_ask_prompt(self, program, target_override=None, prompt_key_override=None):
         target = target_override or program.get("target_audio", "headset")
         prompt_key = prompt_key_override or self.program_prompt_key(program, target)
-        if self.pending_prompt_key == prompt_key or self.last_state == target:
+        if self.pending_prompt_key == prompt_key:
             return
 
         self.pending_prompt_key = prompt_key
         self.ask_active = True
         self.ask_program = program
         self.ask_target = target
+        if target == "headset" and self.last_state == "headset":
+            self.ask_restore_program = program
+            self.ask_restore_prompt_key = None
         self.switch_mode("mini")
         self.animate_mini_in()
 
@@ -1723,7 +2183,7 @@ class AutoAudioApp(ctk.CTk):
         self.ask_active = False
         self.ask_program = None
         self.ask_target = None
-        if hide and self.is_mini and self.winfo_viewable():
+        if hide and self.is_mini and self.winfo_viewable() and not self.mini_pinned_by_user:
             self.animate_mini_out()
 
     def start_tray(self):
@@ -1738,6 +2198,7 @@ class AutoAudioApp(ctk.CTk):
         threading.Thread(target=self.tray.run, daemon=True).start()
 
     def hide_to_tray(self):
+        self.mini_pinned_by_user = False
         self.cancel_mini_animation()
         self.withdraw()
         self.start_tray()
@@ -1755,6 +2216,13 @@ class AutoAudioApp(ctk.CTk):
 
     def quit_app(self, *args):
         self.is_running = False
+        if self.keyboard_event_after_id:
+            try:
+                self.after_cancel(self.keyboard_event_after_id)
+            except Exception:
+                pass
+            self.keyboard_event_after_id = None
+        self.uninstall_keyboard_hook()
         if self.tray:
             self.tray.stop()
         self.after(0, self.destroy)
