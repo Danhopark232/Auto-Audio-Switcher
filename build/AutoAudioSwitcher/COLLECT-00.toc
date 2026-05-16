@@ -2825,9 +2825,21 @@
   ('_tkinter.pyd',
    'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\DLLs\\_tkinter.pyd',
    'EXTENSION'),
+  ('assets\\icons\\NoAppDetected.png',
+   'D:\\programs\\auto audio '
+   'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\NoAppDetected.png',
+   'DATA'),
   ('assets\\icons\\README.md',
    'D:\\programs\\auto audio '
    'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\README.md',
+   'DATA'),
+  ('assets\\icons\\close.png',
+   'D:\\programs\\auto audio '
+   'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\close.png',
+   'DATA'),
+  ('assets\\icons\\edit.png',
+   'D:\\programs\\auto audio '
+   'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\edit.png',
    'DATA'),
   ('assets\\icons\\gear.png',
    'D:\\programs\\auto audio '
@@ -2840,6 +2852,18 @@
   ('assets\\icons\\headset.png',
    'D:\\programs\\auto audio '
    'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\headset.png',
+   'DATA'),
+  ('assets\\icons\\mic.png',
+   'D:\\programs\\auto audio '
+   'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\mic.png',
+   'DATA'),
+  ('assets\\icons\\mic_muted.png',
+   'D:\\programs\\auto audio '
+   'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\mic_muted.png',
+   'DATA'),
+  ('assets\\icons\\minimize.png',
+   'D:\\programs\\auto audio '
+   'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\minimize.png',
    'DATA'),
   ('assets\\icons\\speaker.png',
    'D:\\programs\\auto audio '

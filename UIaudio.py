@@ -34,14 +34,26 @@ MINI_WIDTH = 420
 MINI_HEIGHT = 94
 MINI_ANIMATION_STEPS = 12
 MINI_ANIMATION_INTERVAL_MS = 14
-SETTINGS_DEFAULT_WIDTH = 680
-SETTINGS_DEFAULT_HEIGHT = 840
-SETTINGS_MIN_WIDTH = 680
+SETTINGS_DEFAULT_WIDTH = 592
+SETTINGS_DEFAULT_HEIGHT = 966
+SETTINGS_MIN_WIDTH = 592
 SETTINGS_MIN_HEIGHT = 780
+SETTINGS_DEVICE_GAP = 12
+SETTINGS_DEVICE_WIDTH = 269
+SETTINGS_MIC_HEIGHT = 37
 PROGRAM_ICON_SIZE = 32
 MINI_DETECTED_ICON_SIZE = 52
 MINI_DETECTED_ICON_SOURCE_SIZE = 128
 MINI_DETECTED_ICON_CORNER_RADIUS = 7
+MINI_DEVICE_BUTTON_WIDTH = 52
+MINI_DEVICE_BUTTON_HEIGHT = 42
+MINI_DEVICE_BUTTON_GAP = 6
+MINI_BUTTON_ACTIVE_GRADIENT_START = "#2563E8"
+MINI_BUTTON_ACTIVE_GRADIENT_END = "#153782"
+MINI_BUTTON_INACTIVE_COLOR = "#1C1C1C"
+MINI_BG_GRADIENT_START = "#16123D"
+MINI_BG_GRADIENT_END = "#070707"
+MINI_BG_FALLBACK = "#0E0B24"
 MARQUEE_FADE_WIDTH = 15
 MARQUEE_STEP_PX = 1
 MARQUEE_INTERVAL_MS = 45
@@ -55,6 +67,23 @@ IGNORED_RUNNING_PROGRAM_NAMES = {
     "system idle process",
 }
 APP_NAME = "AutoAudioSwitcher"
+WINDOW_BG = "#171717"
+TITLE_BAR_BG = "#0D0D0D"
+SURFACE_BG = "#101010"
+PANEL_BG = "#111111"
+SETTINGS_OUTER_BG = "#171717"
+SETTINGS_PANEL_BG = "#191919"
+SETTINGS_ROW_BG = "#1C1C1C"
+SETTINGS_GRADIENT_START = "#282828"
+SETTINGS_GRADIENT_END = "#171717"
+SETTINGS_DEVICE_ACTIVE_START = "#2563E8"
+SETTINGS_DEVICE_ACTIVE_END = "#153782"
+SETTINGS_SEPARATOR_COLOR = "#0C131F"
+CARD_BG = "#1A1A1A"
+CONTROL_BG = "#333333"
+CONTROL_HOVER = "#414141"
+FIELD_BG = "#303335"
+FIELD_BORDER = "#4A4D50"
 ACTIVE_COLOR = "#2563EB"
 MIC_MUTED_COLOR = "#7F1D1D"
 MIC_ACTIVE_COLOR = "#334155"
@@ -65,6 +94,8 @@ DWMWA_USE_IMMERSIVE_DARK_MODE = 20
 DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19
 DWMWA_CAPTION_COLOR = 35
 DWMWA_TEXT_COLOR = 36
+DWMWA_WINDOW_CORNER_PREFERENCE = 33
+DWMWCP_ROUND = 2
 WH_KEYBOARD_LL = 13
 INPUT_KEYBOARD = 1
 WM_KEYDOWN = 0x0100
@@ -316,6 +347,202 @@ def make_ui_icon(kind, size=28):
     return ctk.CTkImage(light_image=image, dark_image=image, size=(size, size))
 
 
+def hex_to_rgb(hex_color):
+    hex_color = hex_color.lstrip("#")
+    return tuple(int(hex_color[index:index + 2], 16) for index in (0, 2, 4))
+
+
+def create_css_like_gradient(width, height, start_hex, end_hex):
+    return create_linear_gradient(width, height, start_hex, end_hex, angle_degrees=123, solid_until=0.3259)
+
+
+def create_linear_gradient(width, height, start_hex, end_hex, angle_degrees=91, solid_until=0):
+    start = hex_to_rgb(start_hex)
+    end = hex_to_rgb(end_hex)
+    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    pixels = image.load()
+    angle = math.radians(angle_degrees)
+    dx = math.sin(angle)
+    dy = -math.cos(angle)
+    projections = [x * dx + y * dy for x, y in ((0, 0), (width - 1, 0), (0, height - 1), (width - 1, height - 1))]
+    minimum = min(projections)
+    span = max(1, max(projections) - minimum)
+
+    for y in range(height):
+        for x in range(width):
+            position = ((x * dx + y * dy) - minimum) / span
+            if position <= solid_until:
+                ratio = 0
+            else:
+                ratio = min(1, (position - solid_until) / max(0.001, 1 - solid_until))
+            color = tuple(round(start[index] + (end[index] - start[index]) * ratio) for index in range(3))
+            pixels[x, y] = (*color, 255)
+    return image
+
+
+def make_mini_background_image():
+    image = create_linear_gradient(MINI_WIDTH, MINI_HEIGHT, MINI_BG_GRADIENT_START, MINI_BG_GRADIENT_END, angle_degrees=91)
+    return ImageTk.PhotoImage(image)
+
+
+def make_setting_device_header_image(kind, text, active, width=269, height=39):
+    background = Image.new("RGBA", (width, height), DEVICE_ACTIVE_COLOR if active else DEVICE_INACTIVE_COLOR)
+
+    mask = Image.new("L", (width, height), 0)
+    draw = ImageDraw.Draw(mask)
+    draw.rounded_rectangle((0, 0, width - 1, height + 5), radius=5, fill=255)
+    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    image.alpha_composite(background)
+    image.putalpha(mask)
+
+    icon_path = os.path.join(ICON_DIR, f"{kind}.png")
+    try:
+        icon = Image.open(icon_path).convert("RGBA")
+    except Exception:
+        icon = draw_ui_icon_image(kind, size=128)
+    icon.thumbnail((24, 24), Image.LANCZOS)
+
+    try:
+        text_font = ImageFont.truetype("segoeui.ttf", 18)
+    except Exception:
+        text_font = ImageFont.load_default()
+
+    draw = ImageDraw.Draw(image)
+    bbox = draw.textbbox((0, 0), text, font=text_font)
+    content_width = icon.width + 8 + bbox[2] - bbox[0]
+    x = (width - content_width) // 2
+    y = (height - icon.height) // 2
+    image.alpha_composite(icon, (x, y))
+    draw.text((x + icon.width + 8, (height - (bbox[3] - bbox[1])) / 2 - 1), text, fill=(255, 255, 255, 255), font=text_font)
+    return ctk.CTkImage(light_image=image, dark_image=image, size=(width, height))
+
+
+def make_setting_device_dropdown_image(text, active, width=269, height=37):
+    bg_color = DEVICE_ACTIVE_COLOR if active else DEVICE_INACTIVE_COLOR
+    image = Image.new("RGBA", (width, height), bg_color)
+    mask = Image.new("L", (width, height), 0)
+    draw_mask = ImageDraw.Draw(mask)
+    draw_mask.rounded_rectangle((0, -6, width - 1, height - 1), radius=5, fill=255)
+    image.putalpha(mask)
+
+    try:
+        text_font = ImageFont.truetype("segoeui.ttf", 12)
+    except Exception:
+        text_font = ImageFont.load_default()
+
+    draw = ImageDraw.Draw(image)
+    display_text = text if len(text) <= 28 else text[:25] + "..."
+    bbox = draw.textbbox((0, 0), display_text, font=text_font)
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+    draw.text(((width - text_width) / 2 - 8, (height - text_height) / 2 - 1), display_text, fill=(255, 255, 255, 255), font=text_font)
+    triangle = [(width - 24, height // 2 - 3), (width - 12, height // 2 - 3), (width - 18, height // 2 + 4)]
+    draw.polygon(triangle, fill=(255, 255, 255, 255))
+    return ctk.CTkImage(light_image=image, dark_image=image, size=(width, height))
+
+
+def make_settings_segment_image(text, width, height=37, icon_kind=None, rounded_left=False, rounded_right=False):
+    image = Image.new("RGBA", (width, height), CONTROL_BG)
+    mask = Image.new("L", (width, height), 0)
+    draw_mask = ImageDraw.Draw(mask)
+    draw_mask.rounded_rectangle((0, 0, width - 1, height - 1), radius=5, fill=255)
+    if not rounded_left:
+        draw_mask.rectangle((0, 0, 6, height), fill=255)
+    if not rounded_right:
+        draw_mask.rectangle((width - 7, 0, width, height), fill=255)
+    image.putalpha(mask)
+
+    try:
+        text_font = ImageFont.truetype("segoeuib.ttf" if icon_kind else "segoeui.ttf", 15 if icon_kind else 14)
+    except Exception:
+        text_font = ImageFont.load_default()
+
+    icon = None
+    if icon_kind:
+        try:
+            icon = Image.open(os.path.join(ICON_DIR, f"{icon_kind}.png")).convert("RGBA")
+        except Exception:
+            icon = draw_ui_icon_image(icon_kind, size=128)
+        icon.thumbnail((24, 24), Image.LANCZOS)
+
+    draw = ImageDraw.Draw(image)
+    bbox = draw.textbbox((0, 0), text, font=text_font)
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+    content_width = text_width + ((icon.width + 8) if icon else 0)
+    x = max(0, (width - content_width) // 2)
+    if icon:
+        image.alpha_composite(icon, (x, (height - icon.height) // 2))
+        x += icon.width + 8
+    draw.text((x, (height - text_height) / 2 - bbox[1]), text, fill=(255, 255, 255, 255), font=text_font)
+    return ctk.CTkImage(light_image=image, dark_image=image, size=(width, height))
+
+
+def make_settings_dropdown_segment_image(text, width, height=37):
+    image = Image.new("RGBA", (width, height), CONTROL_BG)
+
+    try:
+        text_font = ImageFont.truetype("segoeui.ttf", 13)
+    except Exception:
+        text_font = ImageFont.load_default()
+
+    draw = ImageDraw.Draw(image)
+    display_text = text
+    max_text_width = max(24, width - 48)
+    while display_text:
+        bbox = draw.textbbox((0, 0), display_text, font=text_font)
+        if bbox[2] - bbox[0] <= max_text_width:
+            break
+        display_text = display_text[:-1]
+    if display_text != text and len(display_text) > 3:
+        display_text = display_text[:-3] + "..."
+
+    bbox = draw.textbbox((0, 0), display_text, font=text_font)
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+    x = max(8, (width - text_width) // 2 - 8)
+    y = (height - text_height) / 2 - bbox[1]
+    draw.text((x, y), display_text, fill=(255, 255, 255, 255), font=text_font)
+
+    arrow_x = width - 18
+    arrow_y = height // 2
+    draw.line((arrow_x - 5, arrow_y - 2, arrow_x, arrow_y + 3, arrow_x + 5, arrow_y - 2), fill=(255, 255, 255, 255), width=2)
+    return ctk.CTkImage(light_image=image, dark_image=image, size=(width, height))
+
+
+def make_settings_gradient_image(width, height):
+    return ImageTk.PhotoImage(create_linear_gradient(max(1, width), max(1, height), SETTINGS_GRADIENT_START, SETTINGS_GRADIENT_END, angle_degrees=160, solid_until=0.0071))
+
+
+def make_mini_button_image(kind, active=False, muted=False):
+    width = MINI_DEVICE_BUTTON_WIDTH
+    height = MINI_DEVICE_BUTTON_HEIGHT
+    if muted:
+        background = Image.new("RGBA", (width, height), MIC_MUTED_COLOR)
+    elif active:
+        background = create_css_like_gradient(width, height, MINI_BUTTON_ACTIVE_GRADIENT_START, MINI_BUTTON_ACTIVE_GRADIENT_END)
+    else:
+        background = Image.new("RGBA", (width, height), MINI_BUTTON_INACTIVE_COLOR)
+
+    mask = Image.new("L", (width, height), 0)
+    draw = ImageDraw.Draw(mask)
+    draw.rounded_rectangle((0, 0, width - 1, height - 1), radius=4, fill=255)
+    button = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    button.alpha_composite(background)
+    button.putalpha(mask)
+
+    path = os.path.join(ICON_DIR, f"{kind}.png")
+    try:
+        icon = Image.open(path).convert("RGBA")
+    except Exception:
+        icon = draw_ui_icon_image(kind, size=128)
+    icon.thumbnail((28, 28), Image.LANCZOS)
+    x = (width - icon.width) // 2
+    y = (height - icon.height) // 2
+    button.alpha_composite(icon, (x, y))
+    return ctk.CTkImage(light_image=button, dark_image=button, size=(width, height))
+
+
 class AutoAudioApp(ctk.CTk):
     def __init__(self, start_mode="tray"):
         super().__init__()
@@ -363,7 +590,17 @@ class AutoAudioApp(ctk.CTk):
             "edit": make_ui_icon("edit", 28),
             "mic": make_ui_icon("mic", 28),
             "mic_muted": make_ui_icon("mic_muted", 28),
+            "no_app": make_ui_icon("NoAppDetected", MINI_DETECTED_ICON_SIZE),
         }
+        self.mini_button_images = {
+            "mic": make_mini_button_image("mic", active=False),
+            "mic_muted": make_mini_button_image("mic_muted", muted=True),
+            "speaker_active": make_mini_button_image("speaker", active=True),
+            "speaker_inactive": make_mini_button_image("speaker", active=False),
+            "headset_active": make_mini_button_image("headset", active=True),
+            "headset_inactive": make_mini_button_image("headset", active=False),
+        }
+        self.current_detected_icon = self.icons["no_app"]
         self.audio_device_names = self.get_output_device_names()
 
         self.title("Auto Audio Switcher")
@@ -591,7 +828,10 @@ class AutoAudioApp(ctk.CTk):
             for attribute in (DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1):
                 ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(enabled), ctypes.sizeof(enabled))
 
-            caption_color = ctypes.c_int(0x000000)
+            corner_preference = ctypes.c_int(DWMWCP_ROUND)
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ctypes.byref(corner_preference), ctypes.sizeof(corner_preference))
+
+            caption_color = ctypes.c_int(0x282828)
             text_color = ctypes.c_int(0xFFFFFF)
             ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, ctypes.byref(caption_color), ctypes.sizeof(caption_color))
             ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, DWMWA_TEXT_COLOR, ctypes.byref(text_color), ctypes.sizeof(text_color))
@@ -607,6 +847,76 @@ class AutoAudioApp(ctk.CTk):
         x = max(0, (screen_width - width) // 2)
         y = max(0, (screen_height - height) // 2)
         self.geometry(f"{width}x{height}+{x}+{y}")
+
+    def install_settings_background(self):
+        self.settings_bg_label = tk.Label(self, bd=0, highlightthickness=0)
+        self.settings_bg_label.place(x=0, y=0, relwidth=1, relheight=1)
+        self.settings_bg_label.lower()
+        self.bind("<Configure>", self.update_settings_background, add="+")
+        self.after(0, self.update_settings_background)
+
+    def update_settings_background(self, event=None):
+        if self.is_mini or not hasattr(self, "settings_bg_label"):
+            return
+        width = max(1, self.winfo_width())
+        height = max(1, self.winfo_height())
+        if getattr(self, "_settings_bg_size", None) == (width, height):
+            return
+        self._settings_bg_size = (width, height)
+        self.settings_bg_photo = make_settings_gradient_image(width, height)
+        self.settings_bg_label.configure(image=self.settings_bg_photo)
+        self.settings_bg_label.lower()
+
+    def center_child_geometry(self, width, height):
+        self.update_idletasks()
+        parent_width = self.winfo_width() if self.winfo_width() > 1 else self.winfo_screenwidth()
+        parent_height = self.winfo_height() if self.winfo_height() > 1 else self.winfo_screenheight()
+        parent_x = self.winfo_x() if self.winfo_viewable() else 0
+        parent_y = self.winfo_y() if self.winfo_viewable() else 0
+        x = parent_x + max(0, (parent_width - width) // 2)
+        y = parent_y + max(0, (parent_height - height) // 2)
+        return f"{width}x{height}+{x}+{y}"
+
+    def bind_popup_drag(self, window, handle):
+        drag = {"x": 0, "y": 0}
+
+        def start(event):
+            drag["x"] = event.x
+            drag["y"] = event.y
+
+        def move(event):
+            window.geometry(f"+{event.x_root - drag['x']}+{event.y_root - drag['y']}")
+
+        handle.bind("<ButtonPress-1>", start)
+        handle.bind("<B1-Motion>", move)
+
+    def create_popup_titlebar(self, window, close_command=None, allow_minimize=True):
+        close_command = close_command or window.destroy
+        titlebar = ctk.CTkFrame(window, fg_color=TITLE_BAR_BG, height=28, corner_radius=0)
+        titlebar.pack(fill="x")
+        titlebar.pack_propagate(False)
+        self.bind_popup_drag(window, titlebar)
+
+        mark = ctk.CTkFrame(titlebar, width=18, height=18, corner_radius=4, fg_color="#E6E6E6")
+        mark.pack(side="left", padx=(7, 7), pady=5)
+        mark.pack_propagate(False)
+        ctk.CTkLabel(titlebar, text="Auto Audio", font=("Segoe UI", 11), text_color="#E8E8E8").pack(side="left")
+
+        ctk.CTkButton(titlebar, text="", image=self.icons["close"], width=28, height=24, fg_color="transparent", hover_color="#333333", command=close_command).pack(side="right", padx=(0, 4))
+        if allow_minimize:
+            ctk.CTkButton(titlebar, text="", image=self.icons["minimize"], width=28, height=24, fg_color="transparent", hover_color="#333333", command=window.iconify).pack(side="right", padx=2)
+        ctk.CTkButton(titlebar, text="", image=self.icons["gear"], width=30, height=24, fg_color="transparent", hover_color="#333333", command=lambda: self.switch_mode("settings")).pack(side="right", padx=2)
+        return titlebar
+
+    def prepare_popup(self, window, title, width, height, grab=True):
+        window.title(title)
+        window.geometry(self.center_child_geometry(width, height))
+        window.transient(self)
+        window.overrideredirect(True)
+        window.configure(fg_color=WINDOW_BG)
+        if grab:
+            window.grab_set()
+        self.create_popup_titlebar(window)
 
     def get_output_device_names(self):
         try:
@@ -797,26 +1107,37 @@ class AutoAudioApp(ctk.CTk):
         canvas.create_image(width - fade_width, 0, image=photo, anchor="nw")
 
     def draw_mini_ui(self):
-        self.configure(fg_color="#171717")
+        self.configure(fg_color=MINI_BG_FALLBACK)
         self.bind("<FocusOut>", self.on_mini_focus_out)
 
         if self.ask_active:
             self.draw_ask_mini_ui()
             return
 
-        header = ctk.CTkFrame(self, fg_color="#101010", height=28, corner_radius=0)
-        header.pack(fill="x")
+        mini_canvas = tk.Canvas(self, width=MINI_WIDTH, height=MINI_HEIGHT, highlightthickness=0, bd=0, bg=MINI_BG_FALLBACK)
+        mini_canvas.pack(fill="both", expand=True)
+        self.mini_bg_photo = make_mini_background_image()
+        mini_canvas.create_image(0, 0, image=self.mini_bg_photo, anchor="nw")
+        mini_canvas.bind("<ButtonPress-1>", self.start_move)
+        mini_canvas.bind("<B1-Motion>", self.do_move)
+
+        header = ctk.CTkFrame(mini_canvas, fg_color="transparent", height=28, corner_radius=0)
+        mini_canvas.create_window(0, 0, window=header, anchor="nw", width=MINI_WIDTH, height=28)
         header.pack_propagate(False)
         header.bind("<ButtonPress-1>", self.start_move)
         header.bind("<B1-Motion>", self.do_move)
 
-        ctk.CTkLabel(header, text="Auto Audio", font=("Segoe UI", 11, "bold"), text_color="#D7D7D7").pack(side="left", padx=12)
+        mark = ctk.CTkFrame(header, width=18, height=18, corner_radius=4, fg_color="#E6E6E6")
+        mark.pack(side="left", padx=(7, 7), pady=5)
+        mark.pack_propagate(False)
+        ctk.CTkLabel(header, text="Auto Audio", font=("Segoe UI", 11), text_color="#E8E8E8").pack(side="left")
         ctk.CTkButton(header, text="", image=self.icons["close"], width=28, height=24, fg_color="transparent", hover_color="#333333", command=self.hide_to_tray).pack(side="right", padx=(0, 4))
         ctk.CTkButton(header, text="", image=self.icons["minimize"], width=28, height=24, fg_color="transparent", hover_color="#333333", command=self.hide_to_tray).pack(side="right", padx=2)
         ctk.CTkButton(header, text="", image=self.icons["gear"], width=34, height=24, fg_color="transparent", hover_color="#333333", command=lambda: self.switch_mode("settings")).pack(side="right", padx=4)
 
-        content = ctk.CTkFrame(self, fg_color="transparent")
-        content.pack(fill="both", expand=True, padx=12, pady=8)
+        content = ctk.CTkFrame(mini_canvas, fg_color="transparent")
+        mini_canvas.create_window(12, 36, window=content, anchor="nw", width=MINI_WIDTH - 24, height=MINI_HEIGHT - 44)
+        content.pack_propagate(False)
 
         self.mini_icon_label = ctk.CTkLabel(content, text="", image=self.current_detected_icon, width=MINI_DETECTED_ICON_SIZE, height=MINI_DETECTED_ICON_SIZE, font=("Segoe UI", 12, "bold"))
         self.mini_icon_label.pack(side="left")
@@ -829,7 +1150,7 @@ class AutoAudioApp(ctk.CTk):
             self.current_detected_name,
             ("Segoe UI", 17, "bold"),
             "white",
-            "#171717",
+            MINI_BG_FALLBACK,
             40,
         )
         self.mini_name_canvas.pack(fill="both", expand=True)
@@ -837,13 +1158,16 @@ class AutoAudioApp(ctk.CTk):
         button_frame = ctk.CTkFrame(content, fg_color="transparent")
         button_frame.pack(side="right")
 
-        self.mic_btn = ctk.CTkButton(button_frame, text="", image=self.icons["mic"], width=52, height=42, corner_radius=8, command=self.toggle_microphone_mute)
-        self.mic_btn.pack(side="left", padx=(0, 6))
+        self.mic_btn = ctk.CTkLabel(button_frame, text="", image=self.mini_button_images["mic"], width=MINI_DEVICE_BUTTON_WIDTH, height=MINI_DEVICE_BUTTON_HEIGHT)
+        self.mic_btn.bind("<Button-1>", lambda event: self.toggle_microphone_mute())
+        self.mic_btn.pack(side="left", padx=(0, MINI_DEVICE_BUTTON_GAP))
 
-        self.speaker_btn = ctk.CTkButton(button_frame, text="", image=self.icons["speaker"], width=52, height=42, corner_radius=8, command=lambda: self.manual_set_audio("speaker"))
-        self.speaker_btn.pack(side="left", padx=(0, 6))
+        self.speaker_btn = ctk.CTkLabel(button_frame, text="", image=self.mini_button_images["speaker_inactive"], width=MINI_DEVICE_BUTTON_WIDTH, height=MINI_DEVICE_BUTTON_HEIGHT)
+        self.speaker_btn.bind("<Button-1>", lambda event: self.manual_set_audio("speaker"))
+        self.speaker_btn.pack(side="left", padx=(0, MINI_DEVICE_BUTTON_GAP))
 
-        self.headset_btn = ctk.CTkButton(button_frame, text="", image=self.icons["headset"], width=52, height=42, corner_radius=8, command=lambda: self.manual_set_audio("headset"))
+        self.headset_btn = ctk.CTkLabel(button_frame, text="", image=self.mini_button_images["headset_inactive"], width=MINI_DEVICE_BUTTON_WIDTH, height=MINI_DEVICE_BUTTON_HEIGHT)
+        self.headset_btn.bind("<Button-1>", lambda event: self.manual_set_audio("headset"))
         self.headset_btn.pack(side="left")
 
         self.update_mini_buttons_ui(self.last_state)
@@ -876,39 +1200,41 @@ class AutoAudioApp(ctk.CTk):
         ctk.CTkButton(button_row, text="No", width=72, height=42, fg_color="#444444", hover_color="#555555", command=self.dismiss_ask_prompt).pack(side="left")
 
     def draw_settings_ui(self):
-        self.configure(fg_color="#171717")
+        self.configure(fg_color=SETTINGS_GRADIENT_END)
+        self.install_settings_background()
         self.audio_device_names = self.get_output_device_names()
         device_options = self.build_device_options()
         self.microphone_device_names = self.get_input_device_names()
         microphone_options = self.build_microphone_options()
 
-        ctk.CTkLabel(self, text="Auto Audio Settings", font=("Segoe UI", 22, "bold"), text_color="white").pack(pady=(22, 14))
+        output_panel = ctk.CTkFrame(self, fg_color=SETTINGS_PANEL_BG, bg_color=SETTINGS_GRADIENT_START, corner_radius=8)
+        output_panel.pack(fill="x", padx=8, pady=(8, 7))
 
-        device_frame = ctk.CTkFrame(self, fg_color="transparent")
-        device_frame.pack(fill="x", padx=18)
+        ctk.CTkLabel(output_panel, text="Audio Output Setting", font=("Segoe UI", 22, "bold"), text_color="white").pack(anchor="w", padx=13, pady=(11, 8))
 
-        self.create_device_box(device_frame, "Speaker", "speaker", device_options).pack(side="left", fill="x", expand=True, padx=(0, 6))
-        self.create_device_box(device_frame, "Headset", "headset", device_options).pack(side="left", fill="x", expand=True, padx=(6, 0))
+        device_frame = ctk.CTkFrame(output_panel, fg_color="transparent")
+        device_frame.pack(fill="x", padx=13)
+        device_frame.grid_columnconfigure(0, weight=1, uniform="device")
+        device_frame.grid_columnconfigure(1, weight=1, uniform="device")
 
-        self.create_microphone_settings(microphone_options)
+        self.create_device_box(device_frame, "Speaker", "speaker", device_options).grid(row=0, column=0, sticky="ew", padx=(0, SETTINGS_DEVICE_GAP // 2))
+        self.create_device_box(device_frame, "Headset", "headset", device_options).grid(row=0, column=1, sticky="ew", padx=(SETTINGS_DEVICE_GAP // 2, 0))
 
-        ctk.CTkLabel(self, text="Program List", font=("Segoe UI", 16, "bold"), text_color="white").pack(anchor="w", padx=22, pady=(20, 8))
-        self.program_list_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.create_microphone_settings(output_panel, microphone_options)
+
+        bottom = ctk.CTkFrame(self, fg_color="transparent")
+        bottom.pack(side="bottom", fill="x", padx=0, pady=(0, 0))
+        self.startup_var = ctk.BooleanVar(value=bool(self.config_data.get("start_with_windows", False)))
+        ctk.CTkCheckBox(bottom, text="Run on Start up", variable=self.startup_var, font=("Segoe UI", 14), fg_color=ACTIVE_COLOR, hover_color="#1D4ED8").pack(anchor="w", padx=8, pady=(3, 7))
+        ctk.CTkButton(bottom, text="Save", height=39, fg_color=ACTIVE_COLOR, hover_color="#1D4ED8", corner_radius=8, command=self.save_and_close).pack(fill="x", padx=8, pady=(0, 8))
+
+        program_panel = ctk.CTkFrame(self, fg_color=SETTINGS_PANEL_BG, bg_color=SETTINGS_GRADIENT_END, corner_radius=8, border_width=0)
+        program_panel.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        ctk.CTkLabel(program_panel, text="Program List", font=("Segoe UI", 22, "bold"), text_color="white").pack(anchor="w", padx=13, pady=(6, 2))
+        self.program_list_frame = ctk.CTkFrame(program_panel, fg_color="transparent")
         self.program_list_frame.pack(fill="both", expand=True)
         self.refresh_program_lists()
 
-        bottom = ctk.CTkFrame(self, fg_color="transparent")
-        bottom.pack(side="bottom", fill="x", padx=18, pady=18)
-        self.startup_var = ctk.BooleanVar(value=bool(self.config_data.get("start_with_windows", False)))
-        ctk.CTkCheckBox(
-            bottom,
-            text="윈도우가 실행되면 자동 실행",
-            variable=self.startup_var,
-            font=("Segoe UI", 13),
-            fg_color=ACTIVE_COLOR,
-            hover_color="#1D4ED8",
-        ).pack(anchor="w", pady=(0, 12))
-        ctk.CTkButton(bottom, text="Save", height=42, fg_color="#2563EB", hover_color="#1D4ED8", command=self.save_and_close).pack(fill="x")
 
     def build_device_options(self):
         options = [name for name in self.audio_device_names if name]
@@ -929,13 +1255,17 @@ class AutoAudioApp(ctk.CTk):
         return options
 
     def create_device_box(self, parent, title, mode, device_options):
-        frame = ctk.CTkFrame(parent, fg_color="#242424", corner_radius=8)
+        header_width = SETTINGS_DEVICE_WIDTH
+        frame = ctk.CTkFrame(parent, fg_color="transparent", width=header_width, height=77, corner_radius=5)
+        frame.pack_propagate(False)
+        frame.grid_propagate(False)
         is_active = self.last_state == mode
-        label = title
-        icon = self.icons["speaker"] if mode == "speaker" else self.icons["headset"]
-        menu_color = DEVICE_ACTIVE_COLOR if is_active else DEVICE_INACTIVE_COLOR
-        device_button = ctk.CTkButton(frame, text=label, image=icon, compound="left", height=36, fg_color=menu_color, hover_color="#1D4ED8", command=lambda: self.manual_set_audio(mode))
-        device_button.pack(fill="x", padx=10, pady=(10, 8))
+        header_image = make_setting_device_header_image(mode, title, is_active, width=header_width)
+        device_button = ctk.CTkLabel(frame, text="", image=header_image, width=header_width, height=39, cursor="hand2")
+        device_button.configure(image=header_image)
+        device_button._settings_header_image = header_image
+        device_button.bind("<Button-1>", lambda event: self.manual_set_audio(mode))
+        device_button.pack(fill="x")
 
         variable = ctk.StringVar(value=self.config_data.get(f"{mode}_name") if self.config_data.get(f"{mode}_name") in device_options else device_options[0])
         if mode == "speaker":
@@ -943,74 +1273,155 @@ class AutoAudioApp(ctk.CTk):
         else:
             self.hs_var = variable
 
-        option_menu = ctk.CTkOptionMenu(
-            frame,
-            values=device_options,
-            variable=variable,
-            width=210,
-            height=30,
-            fg_color=menu_color,
-            button_color=menu_color,
-            button_hover_color="#1D4ED8",
-            anchor="center",
+        selected_device = self.config_data.get(f"{mode}_name") if self.config_data.get(f"{mode}_name") in device_options else device_options[0]
+        dropdown_image = make_setting_device_dropdown_image(selected_device, is_active, width=header_width)
+        option_menu = ctk.CTkLabel(frame, text="", image=dropdown_image, width=header_width, height=37, cursor="hand2")
+        option_menu._settings_dropdown_image = dropdown_image
+        dropdown_menu = tk.Menu(
+            option_menu,
+            tearoff=0,
+            background=DEVICE_ACTIVE_COLOR if is_active else DEVICE_INACTIVE_COLOR,
+            foreground="white",
+            activebackground="#1D4ED8",
+            activeforeground="white",
         )
-        option_menu.pack(fill="x", padx=10, pady=(0, 10))
-        self.device_controls[mode] = {"button": device_button, "menu": option_menu}
+        for device_name in device_options:
+            dropdown_menu.add_command(label=device_name, command=lambda value=device_name: variable.set(value))
+
+        def refresh_visuals():
+            current_width = max(120, frame.winfo_width() or header_width)
+            active = self.last_state == mode
+            header = make_setting_device_header_image(mode, title, active, width=current_width)
+            dropdown = make_setting_device_dropdown_image(variable.get(), active, width=current_width)
+            device_button._settings_header_image = header
+            option_menu._settings_dropdown_image = dropdown
+            device_button.configure(image=header, width=current_width)
+            option_menu.configure(image=dropdown, width=current_width)
+            dropdown_menu.configure(background=DEVICE_ACTIVE_COLOR if active else DEVICE_INACTIVE_COLOR)
+
+        def open_dropdown(event=None):
+            try:
+                dropdown_menu.tk_popup(option_menu.winfo_rootx(), option_menu.winfo_rooty() + option_menu.winfo_height())
+            except Exception:
+                pass
+            finally:
+                try:
+                    dropdown_menu.grab_release()
+                except Exception:
+                    pass
+
+        option_menu.bind("<Button-1>", open_dropdown)
+        option_menu.pack(fill="x", pady=(1, 0))
+        variable.trace_add("write", lambda *_: refresh_visuals())
+        frame.bind("<Configure>", lambda event: refresh_visuals())
+        self.device_controls[mode] = {"button": device_button, "menu": dropdown_menu, "dropdown": option_menu, "title": title, "variable": variable, "refresh": refresh_visuals}
         return frame
 
-    def create_microphone_settings(self, microphone_options):
-        frame = ctk.CTkFrame(self, fg_color="#242424", corner_radius=8)
-        frame.pack(fill="x", padx=18, pady=(12, 0))
+    def create_microphone_settings(self, parent, microphone_options):
+        frame = ctk.CTkFrame(parent, fg_color=SETTINGS_SEPARATOR_COLOR, corner_radius=5, height=SETTINGS_MIC_HEIGHT)
+        frame.pack(fill="x", padx=13, pady=(8, 14))
+        frame.pack_propagate(False)
 
-        ctk.CTkLabel(frame, text="Microphone", font=("Segoe UI", 13, "bold"), text_color="#CFCFCF").pack(anchor="w", padx=12, pady=(10, 6))
+        top_row = ctk.CTkFrame(frame, fg_color=SETTINGS_SEPARATOR_COLOR, height=SETTINGS_MIC_HEIGHT)
+        top_row.pack(fill="both", expand=True)
+        top_row.pack_propagate(False)
 
-        top_row = ctk.CTkFrame(frame, fg_color="transparent")
-        top_row.pack(fill="x", padx=10, pady=(0, 8))
+        mic_image = make_settings_segment_image("Mic", 97, height=SETTINGS_MIC_HEIGHT, icon_kind="mic", rounded_left=True, rounded_right=False)
+        mic_button = ctk.CTkLabel(
+            top_row,
+            text="",
+            image=mic_image,
+            width=97,
+            height=SETTINGS_MIC_HEIGHT,
+            cursor="hand2",
+        )
+        mic_button._segment_image = mic_image
+        mic_button.bind("<Button-1>", lambda event: self.toggle_microphone_mute())
+        mic_button.pack(side="left", fill="y")
+        ctk.CTkFrame(top_row, fg_color=SETTINGS_SEPARATOR_COLOR, width=1, height=SETTINGS_MIC_HEIGHT).pack(side="left")
 
         selected_microphone = self.config_data.get("microphone_name") if self.config_data.get("microphone_name") in microphone_options else microphone_options[0]
         self.mic_var = ctk.StringVar(value=selected_microphone)
-        ctk.CTkOptionMenu(
-            top_row,
-            values=microphone_options,
-            variable=self.mic_var,
-            height=30,
-            fg_color=DEVICE_INACTIVE_COLOR,
-            button_color=DEVICE_INACTIVE_COLOR,
-            button_hover_color="#334155",
-            anchor="center",
-        ).pack(side="left", fill="x", expand=True, padx=(0, 8))
+        mic_menu_label = ctk.CTkLabel(top_row, text="", width=220, height=SETTINGS_MIC_HEIGHT, cursor="hand2")
+        mic_menu = tk.Menu(
+            mic_menu_label,
+            tearoff=0,
+            background=CONTROL_BG,
+            foreground="white",
+            activebackground=CONTROL_HOVER,
+            activeforeground="white",
+        )
+        for microphone_name in microphone_options:
+            mic_menu.add_command(label=microphone_name, command=lambda value=microphone_name: self.mic_var.set(value))
+
+        def refresh_mic_menu():
+            width = max(120, mic_menu_label.winfo_width() or 220)
+            image = make_settings_dropdown_segment_image(self.mic_var.get(), width, SETTINGS_MIC_HEIGHT)
+            mic_menu_label._dropdown_image = image
+            mic_menu_label.configure(image=image, width=width, height=SETTINGS_MIC_HEIGHT)
+
+        def open_mic_menu(event=None):
+            try:
+                mic_menu.tk_popup(mic_menu_label.winfo_rootx(), mic_menu_label.winfo_rooty() + mic_menu_label.winfo_height())
+            finally:
+                try:
+                    mic_menu.grab_release()
+                except Exception:
+                    pass
+
+        mic_menu_label.bind("<Button-1>", open_mic_menu)
+        mic_menu_label.bind("<Configure>", lambda event: refresh_mic_menu())
+        self.mic_var.trace_add("write", lambda *_: refresh_mic_menu())
+        mic_menu_label.pack(side="left", fill="both", expand=True)
+        ctk.CTkFrame(top_row, fg_color=SETTINGS_SEPARATOR_COLOR, width=1, height=SETTINGS_MIC_HEIGHT).pack(side="left")
 
         current_hotkey = self.config_data.get("microphone_mute_hotkey", "") or HOTKEY_NONE_LABEL
         self.mic_hotkey_var = ctk.StringVar(value=current_hotkey if current_hotkey in HOTKEY_OPTIONS else HOTKEY_NONE_LABEL)
-        ctk.CTkOptionMenu(
-            top_row,
-            values=HOTKEY_OPTIONS,
-            variable=self.mic_hotkey_var,
-            width=96,
-            height=30,
-            fg_color="#333333",
-            button_color="#333333",
-            button_hover_color="#444444",
-            anchor="center",
-        ).pack(side="left", padx=(0, 8))
+        hotkey_menu_label = ctk.CTkLabel(top_row, text="", width=96, height=SETTINGS_MIC_HEIGHT, cursor="hand2")
+        hotkey_menu = tk.Menu(
+            hotkey_menu_label,
+            tearoff=0,
+            background=CONTROL_BG,
+            foreground="white",
+            activebackground=CONTROL_HOVER,
+            activeforeground="white",
+        )
+        for hotkey_name in HOTKEY_OPTIONS:
+            hotkey_menu.add_command(label=hotkey_name, command=lambda value=hotkey_name: self.mic_hotkey_var.set(value))
 
-        ctk.CTkButton(
+        def refresh_hotkey_menu():
+            image = make_settings_dropdown_segment_image(self.mic_hotkey_var.get(), 96, SETTINGS_MIC_HEIGHT)
+            hotkey_menu_label._dropdown_image = image
+            hotkey_menu_label.configure(image=image, width=96, height=SETTINGS_MIC_HEIGHT)
+
+        def open_hotkey_menu(event=None):
+            try:
+                hotkey_menu.tk_popup(hotkey_menu_label.winfo_rootx(), hotkey_menu_label.winfo_rooty() + hotkey_menu_label.winfo_height())
+            finally:
+                try:
+                    hotkey_menu.grab_release()
+                except Exception:
+                    pass
+
+        hotkey_menu_label.bind("<Button-1>", open_hotkey_menu)
+        self.mic_hotkey_var.trace_add("write", lambda *_: refresh_hotkey_menu())
+        hotkey_menu_label.pack(side="left", fill="y")
+        ctk.CTkFrame(top_row, fg_color=SETTINGS_SEPARATOR_COLOR, width=1, height=SETTINGS_MIC_HEIGHT).pack(side="left")
+
+        detect_image = make_settings_segment_image("Detect Key", 100, height=SETTINGS_MIC_HEIGHT, rounded_left=False, rounded_right=True)
+        detect_button = ctk.CTkLabel(
             top_row,
-            text="Detect Key",
+            text="",
+            image=detect_image,
             width=100,
-            height=30,
-            fg_color="#333333",
-            hover_color="#444444",
-            command=self.open_microphone_hotkey_capture,
-        ).pack(side="left")
-
-        ctk.CTkLabel(
-            frame,
-            text="Hotkey set: mic button sends hotkey. None: mic button mutes selected input.",
-            font=("Segoe UI", 10),
-            text_color="#8F8F8F",
-            anchor="w",
-        ).pack(fill="x", padx=12, pady=(0, 10))
+            height=SETTINGS_MIC_HEIGHT,
+            cursor="hand2",
+        )
+        detect_button._segment_image = detect_image
+        detect_button.bind("<Button-1>", lambda event: self.open_microphone_hotkey_capture())
+        detect_button.pack(side="left", fill="y")
+        self.after(0, refresh_mic_menu)
+        self.after(0, refresh_hotkey_menu)
 
     def open_microphone_hotkey_capture(self):
         capture = ctk.CTkToplevel(self)
@@ -1046,11 +1457,12 @@ class AutoAudioApp(ctk.CTk):
         section.pack(fill="both", expand=True)
 
         header = ctk.CTkFrame(section, fg_color="transparent")
-        header.pack(fill="x", padx=22, pady=(8, 0))
-        ctk.CTkLabel(header, text=title, font=("Segoe UI", 13, "bold"), text_color="#CFCFCF").pack(side="left")
+        header.pack(fill="x", padx=14, pady=(4, 2))
+        ctk.CTkFrame(header, fg_color="#636363", width=2, height=15, corner_radius=4).pack(side="left", padx=(0, 5))
+        ctk.CTkLabel(header, text=title, font=("Segoe UI", 14), text_color="white").pack(side="left")
 
-        scroll = ctk.CTkScrollableFrame(section, height=130, fg_color="#101010", border_width=1, border_color="#2A2A2A", corner_radius=8)
-        scroll.pack(fill="both", expand=True, padx=18, pady=(6, 8))
+        scroll = ctk.CTkScrollableFrame(section, height=211, fg_color=SURFACE_BG, border_width=1, border_color="#080808", corner_radius=9)
+        scroll.pack(fill="both", expand=True, padx=13, pady=(0, 8))
         self.list_drop_targets[key] = self.get_scroll_drop_widgets(scroll)
 
         programs = self.config_data[key]
@@ -1058,37 +1470,38 @@ class AutoAudioApp(ctk.CTk):
             ctk.CTkLabel(scroll, text="No programs yet", text_color="#777777", height=40).pack(fill="x")
         else:
             for program in programs:
-                item = ctk.CTkFrame(scroll, fg_color="#1C1C1C", corner_radius=6)
-                item.pack(fill="x", pady=4, padx=4)
+                item = ctk.CTkFrame(scroll, fg_color=SETTINGS_ROW_BG, corner_radius=7, height=51)
+                item.pack(fill="x", pady=2, padx=4)
+                item.pack_propagate(False)
 
-                handle = ctk.CTkLabel(item, text="", image=self.icons["handle"], width=28, height=42, cursor="hand2")
-                handle.pack(side="left", padx=(6, 2), pady=5)
+                handle = ctk.CTkLabel(item, text="", image=self.icons["handle"], width=34, height=51, cursor="hand2")
+                handle.pack(side="left", padx=(4, 0), pady=0)
                 handle.bind("<ButtonPress-1>", lambda event, k=key, p=program: self.start_program_drag(event, k, p))
                 handle.bind("<B1-Motion>", self.update_program_drag)
                 handle.bind("<ButtonRelease-1>", self.finish_program_drag)
 
                 icon = self.get_cached_program_icon(self.get_program_icon_source(program), size=PROGRAM_ICON_SIZE)
-                icon_label = ctk.CTkLabel(item, text="" if icon else "APP", image=icon, width=42, height=42, font=("Segoe UI", 10, "bold"))
-                icon_label.pack(side="left", padx=(8, 4), pady=5)
+                icon_label = ctk.CTkLabel(item, text="" if icon else "APP", image=icon, width=38, height=38, fg_color="#272A2F", corner_radius=4, font=("Segoe UI", 9, "bold"))
+                icon_label.pack(side="left", padx=(8, 8), pady=6)
 
                 text_box = ctk.CTkFrame(item, fg_color="transparent")
-                text_box.pack(side="left", fill="both", expand=True, padx=4, pady=5)
+                text_box.pack(side="left", fill="both", expand=True, padx=0, pady=5)
                 name_canvas = self.create_marquee_label(
                     text_box,
                     program.get("name", "Unknown"),
-                    ("Segoe UI", 14, "bold"),
+                    ("Segoe UI", 14),
                     "white",
-                    "#1C1C1C",
+                    SETTINGS_ROW_BG,
                     42,
                 )
                 name_canvas.pack(fill="both", expand=True)
 
-                ctk.CTkButton(item, text="", image=self.icons["trash"], width=36, height=30, fg_color="#5B1F1F", hover_color="#7F1D1D", command=lambda p=program, k=key: self.remove_program(k, p)).pack(side="right", padx=(4, 8))
-                ctk.CTkButton(item, text="", image=self.icons["headset"], width=36, height=30, fg_color=self.target_color(program, "headset"), hover_color="#2563EB", command=lambda p=program, k=key: self.set_program_target(k, p, "headset")).pack(side="right", padx=4)
-                ctk.CTkButton(item, text="", image=self.icons["speaker"], width=36, height=30, fg_color=self.target_color(program, "speaker"), hover_color="#2563EB", command=lambda p=program, k=key: self.set_program_target(k, p, "speaker")).pack(side="right", padx=4)
-                ctk.CTkButton(item, text="", image=self.icons["edit"], width=36, height=30, fg_color="#333333", hover_color="#444444", command=lambda p=program, k=key: self.edit_program_name(k, p)).pack(side="right", padx=4)
+                ctk.CTkButton(item, text="", image=self.icons["trash"], width=38, height=39, fg_color="#991B1B", hover_color="#B91C1C", corner_radius=4, command=lambda p=program, k=key: self.remove_program(k, p)).pack(side="right", padx=(3, 6))
+                ctk.CTkButton(item, text="", image=self.icons["headset"], width=38, height=39, fg_color=self.target_color(program, "headset"), hover_color="#2563EB", corner_radius=4, command=lambda p=program, k=key: self.set_program_target(k, p, "headset")).pack(side="right", padx=2)
+                ctk.CTkButton(item, text="", image=self.icons["speaker"], width=38, height=39, fg_color=self.target_color(program, "speaker"), hover_color="#2563EB", corner_radius=4, command=lambda p=program, k=key: self.set_program_target(k, p, "speaker")).pack(side="right", padx=2)
+                ctk.CTkButton(item, text="", image=self.icons["edit"], width=39, height=39, fg_color=CONTROL_BG, hover_color=CONTROL_HOVER, corner_radius=4, command=lambda p=program, k=key: self.edit_program_name(k, p)).pack(side="right", padx=2)
 
-        ctk.CTkButton(section, text="Add Program", height=34, fg_color="#333333", hover_color="#444444", command=lambda: self.open_add_program_menu(key)).pack(fill="x", padx=22, pady=(0, 12))
+        ctk.CTkButton(section, text="+  Add Program", height=39, fg_color=CONTROL_BG, hover_color=CONTROL_HOVER, corner_radius=13, font=("Segoe UI", 14), command=lambda: self.open_add_program_menu(key)).pack(fill="x", padx=13, pady=(0, 6))
 
     def get_program_icon_source(self, program, process_path=None):
         return program.get("icon_path") or process_path or program.get("path") or ""
@@ -1209,7 +1622,7 @@ class AutoAudioApp(ctk.CTk):
         self.update_idletasks()
 
     def target_color(self, program, mode):
-        return "#2563EB" if program.get("target_audio") == mode else "#3A3A3A"
+        return ACTIVE_COLOR if program.get("target_audio") == mode else CONTROL_BG
 
     def switch_mode(self, target, focus=True):
         self.cancel_mini_animation()
@@ -1258,37 +1671,31 @@ class AutoAudioApp(ctk.CTk):
 
     def update_mini_buttons_ui(self, state):
         if hasattr(self, "speaker_btn") and self.speaker_btn.winfo_exists():
-            active = ACTIVE_COLOR
-            inactive = "#424242"
-            self.speaker_btn.configure(fg_color=active if state == "speaker" else inactive)
-            self.headset_btn.configure(fg_color=active if state == "headset" else inactive)
+            self.speaker_btn.configure(image=self.mini_button_images["speaker_active" if state == "speaker" else "speaker_inactive"])
+            self.headset_btn.configure(image=self.mini_button_images["headset_active" if state == "headset" else "headset_inactive"])
         self.update_microphone_button_ui()
         self.update_device_controls_ui(state)
 
     def update_device_controls_ui(self, state):
         for mode, controls in getattr(self, "device_controls", {}).items():
-            color = DEVICE_ACTIVE_COLOR if mode == state else DEVICE_INACTIVE_COLOR
-            hover = "#1D4ED8" if mode == state else "#334155"
-            button = controls.get("button")
-            menu = controls.get("menu")
             try:
-                if button and button.winfo_exists():
-                    button.configure(fg_color=color, hover_color=hover)
-                if menu and menu.winfo_exists():
-                    menu.configure(fg_color=color, button_color=color, button_hover_color=hover)
+                refresh = controls.get("refresh")
+                if refresh:
+                    refresh()
             except Exception:
                 pass
 
     def update_detect_ui(self, name, icon=None):
         self.current_detected_name = name
-        self.current_detected_icon = icon
+        display_icon = icon or self.icons.get("no_app")
+        self.current_detected_icon = display_icon
         if self.ask_active or self.notification_active:
             return
         if hasattr(self, "mini_name_canvas") and self.mini_name_canvas.winfo_exists():
             display_name = name or "No Program Detected"
             self.set_marquee_text(self.mini_name_canvas, display_name)
         if hasattr(self, "mini_icon_label") and self.mini_icon_label.winfo_exists():
-            self.mini_icon_label.configure(image=icon, text="")
+            self.mini_icon_label.configure(image=display_icon, text="")
 
     def show_audio_change_notification(self, target, program_name=None, icon=None, animate=True):
         if self.notification_after_id:
@@ -1311,7 +1718,7 @@ class AutoAudioApp(ctk.CTk):
         self.update_mini_buttons_ui(target)
 
         if hasattr(self, "mini_icon_label") and self.mini_icon_label.winfo_exists():
-            fallback_icon = self.icons["headset"] if target == "headset" else self.icons["speaker"]
+            fallback_icon = self.icons.get("no_app") if program_name == "No Program Detected" else self.icons["headset"] if target == "headset" else self.icons["speaker"]
             self.mini_icon_label.configure(image=icon or fallback_icon, text="")
         if hasattr(self, "mini_name_canvas") and self.mini_name_canvas.winfo_exists():
             self.set_marquee_text(self.mini_name_canvas, "Audio output changed")
@@ -1424,9 +1831,7 @@ class AutoAudioApp(ctk.CTk):
         if hasattr(self, "mic_btn") and self.mic_btn.winfo_exists():
             muted = bool(self.mic_muted)
             self.mic_btn.configure(
-                image=self.icons["mic_muted"] if muted else self.icons["mic"],
-                fg_color=MIC_MUTED_COLOR if muted else MIC_ACTIVE_COLOR,
-                hover_color="#991B1B" if muted else "#475569",
+                image=self.mini_button_images["mic_muted"] if muted else self.mini_button_images["mic"]
             )
 
     def normalize_hotkey_name(self, key_name):
@@ -1647,14 +2052,11 @@ class AutoAudioApp(ctk.CTk):
 
     def open_add_program_menu(self, key):
         menu = ctk.CTkToplevel(self)
-        menu.title("Add Program")
-        menu.geometry("360x180+780+280")
-        menu.transient(self)
-        menu.configure(fg_color="#171717")
+        self.prepare_popup(menu, "Add Program", 418, 180, grab=True)
 
-        ctk.CTkLabel(menu, text="Add Program", font=("Segoe UI", 18, "bold"), text_color="white").pack(pady=(22, 16))
-        ctk.CTkButton(menu, text="Add .exe", height=36, fg_color="#333333", hover_color="#444444", command=lambda: self.choose_add_exe(key, menu)).pack(fill="x", padx=24, pady=(0, 8))
-        ctk.CTkButton(menu, text="Show Running Program List", height=36, fg_color="#333333", hover_color="#444444", command=lambda: self.choose_running_program(key, menu)).pack(fill="x", padx=24)
+        ctk.CTkLabel(menu, text="Add Program", font=("Segoe UI", 24, "bold"), text_color="white").pack(anchor="w", padx=14, pady=(12, 6))
+        ctk.CTkButton(menu, text="+  Add .exe file", height=38, fg_color=CONTROL_BG, hover_color=CONTROL_HOVER, corner_radius=4, font=("Segoe UI", 18), command=lambda: self.choose_add_exe(key, menu)).pack(fill="x", padx=14, pady=(0, 8))
+        ctk.CTkButton(menu, text="+  Add Running Program", height=38, fg_color=CONTROL_BG, hover_color=CONTROL_HOVER, corner_radius=4, font=("Segoe UI", 18), command=lambda: self.choose_running_program(key, menu)).pack(fill="x", padx=14)
 
     def choose_add_exe(self, key, menu):
         menu.destroy()
@@ -1743,7 +2145,7 @@ class AutoAudioApp(ctk.CTk):
         picker.title("Add Running Program")
         picker.geometry("680x560+620+160")
         picker.transient(self)
-        picker.configure(fg_color="#171717")
+        picker.configure(fg_color=WINDOW_BG)
 
         header = ctk.CTkFrame(picker, fg_color="transparent")
         header.pack(fill="x", padx=16, pady=(18, 8))
@@ -1752,14 +2154,14 @@ class AutoAudioApp(ctk.CTk):
         sort_frame = ctk.CTkFrame(header, fg_color="transparent")
         sort_frame.pack(side="right")
         sort_buttons = {}
-        sort_buttons["name"] = ctk.CTkButton(sort_frame, text="A-Z", width=58, height=28)
+        sort_buttons["name"] = ctk.CTkButton(sort_frame, text="A-Z", width=58, height=28, corner_radius=4)
         sort_buttons["name"].pack(side="left", padx=(0, 6))
-        sort_buttons["resource"] = ctk.CTkButton(sort_frame, text="Resource", width=86, height=28)
+        sort_buttons["resource"] = ctk.CTkButton(sort_frame, text="Resource", width=86, height=28, corner_radius=4)
         sort_buttons["resource"].pack(side="left", padx=(0, 6))
-        sort_buttons["recent"] = ctk.CTkButton(sort_frame, text="Recent", width=74, height=28)
+        sort_buttons["recent"] = ctk.CTkButton(sort_frame, text="Recent", width=74, height=28, corner_radius=4)
         sort_buttons["recent"].pack(side="left")
 
-        scroll = ctk.CTkScrollableFrame(picker, fg_color="#101010", corner_radius=8)
+        scroll = ctk.CTkScrollableFrame(picker, fg_color=SURFACE_BG, corner_radius=6)
         scroll.pack(fill="both", expand=True, padx=16, pady=(0, 16))
 
         processes = self.list_running_programs()
@@ -1777,7 +2179,7 @@ class AutoAudioApp(ctk.CTk):
                 is_active = mode == sort_mode
                 button.configure(
                     fg_color=ACTIVE_COLOR if is_active else "#333333",
-                    hover_color="#1D4ED8" if is_active else "#444444",
+                    hover_color="#1D4ED8" if is_active else CONTROL_HOVER,
                 )
 
         if not processes:
@@ -1792,7 +2194,7 @@ class AutoAudioApp(ctk.CTk):
             processes = sorted(processes, key=lambda item: item["name"].lower())
 
         for program in processes:
-            row = ctk.CTkFrame(scroll, fg_color="#1C1C1C", corner_radius=6)
+            row = ctk.CTkFrame(scroll, fg_color=PANEL_BG, corner_radius=4)
             row.pack(fill="x", padx=4, pady=4)
 
             icon = self.get_cached_program_icon(program.get("path"), size=PROGRAM_ICON_SIZE)
@@ -1804,7 +2206,7 @@ class AutoAudioApp(ctk.CTk):
             detail = f"CPU {program.get('cpu_percent', 0):.1f}%  |  RAM {program.get('memory_mb', 0):.1f} MB"
             ctk.CTkLabel(text_box, text=detail, font=("Segoe UI", 10), text_color="#8F8F8F", anchor="w").pack(fill="x")
 
-            ctk.CTkButton(row, text="Add", width=62, height=28, command=lambda p=program: self.pick_running_program(key, p, picker)).pack(side="right", padx=8)
+            ctk.CTkButton(row, text="Add", width=62, height=28, fg_color=CONTROL_BG, hover_color=CONTROL_HOVER, corner_radius=4, command=lambda p=program: self.pick_running_program(key, p, picker)).pack(side="right", padx=8)
 
     def list_running_programs(self):
         current_pid = os.getpid()
@@ -1884,44 +2286,45 @@ class AutoAudioApp(ctk.CTk):
         icon_path_var = ctk.StringVar(value=self.config_data[key][index].get("icon_path", ""))
 
         editor = ctk.CTkToplevel(self)
-        editor.title("Edit Program")
-        editor.geometry("420x260+740+260")
-        editor.transient(self)
-        editor.grab_set()
-        editor.configure(fg_color="#171717")
+        self.prepare_popup(editor, "Edit Program", 418, 244, grab=True)
 
-        ctk.CTkLabel(editor, text="Edit Program", font=("Segoe UI", 16, "bold"), text_color="white").pack(anchor="w", padx=18, pady=(18, 8))
-        entry = ctk.CTkEntry(editor, height=34)
-        entry.pack(fill="x", padx=18)
-        entry.insert(0, self.config_data[key][index].get("name", ""))
-        entry.focus_set()
-        entry.select_range(0, "end")
+        ctk.CTkLabel(editor, text="Edit Program", font=("Segoe UI", 24, "bold"), text_color="white").pack(anchor="w", padx=14, pady=(12, 6))
 
         icon_row = ctk.CTkFrame(editor, fg_color="transparent")
-        icon_row.pack(fill="x", padx=18, pady=(14, 0))
+        icon_row.pack(fill="x", padx=14, pady=(0, 8))
 
         preview_icon = self.get_cached_program_icon(
             self.get_program_icon_source(self.config_data[key][index]),
-            size=PROGRAM_ICON_SIZE,
+            size=54,
             source_size=MINI_DETECTED_ICON_SOURCE_SIZE,
             corner_radius=MINI_DETECTED_ICON_CORNER_RADIUS,
         )
-        preview_label = ctk.CTkLabel(icon_row, text="" if preview_icon else "APP", image=preview_icon, width=42, height=42, font=("Segoe UI", 10, "bold"))
-        preview_label.pack(side="left", padx=(0, 10))
+        preview_label = ctk.CTkLabel(icon_row, text="" if preview_icon else "APP", image=preview_icon, width=56, height=54, fg_color="#24272B", corner_radius=4, font=("Segoe UI", 10, "bold"))
+        preview_label.pack(side="left", padx=(0, 8))
 
-        icon_text = ctk.CTkLabel(icon_row, text=self.icon_source_label(icon_path_var.get()), font=("Segoe UI", 11), text_color="#B8B8B8", anchor="w")
-        icon_text.pack(side="left", fill="x", expand=True)
+        entry = ctk.CTkEntry(
+            icon_row,
+            height=54,
+            fg_color=FIELD_BG,
+            border_color=FIELD_BORDER,
+            border_width=2,
+            corner_radius=6,
+            font=("Segoe UI", 15),
+        )
+        entry.pack(side="left", fill="both", expand=True)
+        entry.insert(0, self.config_data[key][index].get("name", ""))
+        entry.focus_set()
+        entry.select_range(0, "end")
 
         def refresh_icon_preview():
             preview_source = icon_path_var.get() or self.config_data[key][index].get("path", "")
             icon = self.get_cached_program_icon(
                 preview_source,
-                size=PROGRAM_ICON_SIZE,
+                size=54,
                 source_size=MINI_DETECTED_ICON_SOURCE_SIZE,
                 corner_radius=MINI_DETECTED_ICON_CORNER_RADIUS,
             )
             preview_label.configure(image=icon, text="" if icon else "APP")
-            icon_text.configure(text=self.icon_source_label(icon_path_var.get()))
 
         def choose_custom_image():
             path = filedialog.askopenfilename(
@@ -1942,13 +2345,12 @@ class AutoAudioApp(ctk.CTk):
                 refresh_icon_preview()
 
         icon_button_row = ctk.CTkFrame(editor, fg_color="transparent")
-        icon_button_row.pack(fill="x", padx=18, pady=(10, 0))
-        ctk.CTkButton(icon_button_row, text="Custom Image", height=32, fg_color="#333333", hover_color="#444444", command=choose_custom_image).pack(side="left", fill="x", expand=True, padx=(0, 6))
-        ctk.CTkButton(icon_button_row, text="Program Icon", height=32, fg_color="#333333", hover_color="#444444", command=choose_program_icon).pack(side="left", fill="x", expand=True, padx=6)
-        ctk.CTkButton(icon_button_row, text="Default", width=82, height=32, fg_color="#333333", hover_color="#444444", command=lambda: (icon_path_var.set(""), refresh_icon_preview())).pack(side="left", padx=(6, 0))
+        icon_button_row.pack(fill="x", padx=14, pady=(0, 10))
+        ctk.CTkButton(icon_button_row, text="Custom Icon", height=32, fg_color=CONTROL_BG, hover_color=CONTROL_HOVER, corner_radius=4, font=("Segoe UI", 13), command=choose_custom_image).pack(side="left", fill="x", expand=True, padx=(0, 5))
+        ctk.CTkButton(icon_button_row, text="Program Icon", height=32, fg_color=CONTROL_BG, hover_color=CONTROL_HOVER, corner_radius=4, font=("Segoe UI", 13), command=choose_program_icon).pack(side="left", fill="x", expand=True, padx=(5, 0))
 
         button_row = ctk.CTkFrame(editor, fg_color="transparent")
-        button_row.pack(fill="x", padx=18, pady=16)
+        button_row.pack(fill="x", padx=14, pady=(0, 14))
 
         def save_name():
             new_name = entry.get().strip()
@@ -1960,8 +2362,8 @@ class AutoAudioApp(ctk.CTk):
             editor.destroy()
             self.refresh_program_lists()
 
-        ctk.CTkButton(button_row, text="Cancel", width=92, height=32, fg_color="#333333", hover_color="#444444", command=editor.destroy).pack(side="right")
-        ctk.CTkButton(button_row, text="Save", width=92, height=32, fg_color=ACTIVE_COLOR, hover_color="#1D4ED8", command=save_name).pack(side="right", padx=(0, 8))
+        ctk.CTkButton(button_row, text="Save", height=38, fg_color=CONTROL_BG, hover_color=CONTROL_HOVER, corner_radius=4, font=("Segoe UI", 15), command=save_name).pack(side="left", fill="x", expand=True, padx=(0, 5))
+        ctk.CTkButton(button_row, text="Cancel", height=38, fg_color=CONTROL_BG, hover_color=CONTROL_HOVER, corner_radius=4, font=("Segoe UI", 15), command=editor.destroy).pack(side="left", fill="x", expand=True, padx=(5, 0))
         editor.bind("<Return>", lambda event: save_name())
         editor.bind("<Escape>", lambda event: editor.destroy())
 
