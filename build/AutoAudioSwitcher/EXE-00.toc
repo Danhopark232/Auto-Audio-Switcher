@@ -76,7 +76,7 @@
  [],
  False,
  False,
- 1779167461,
+ 1779776835,
  [('runw.exe',
    'D:\\programs\\auto audio '
    'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\PyInstaller\\bootloader\\Windows-64bit-intel\\runw.exe',

@@ -53,10 +53,10 @@
             "target_audio": "headset"
         }
     ],
-    "start_with_windows": true,
+    "start_with_windows": false,
     "settings_geometry": "680x1162+1107+156",
     "microphone_name": "Default Microphone",
     "microphone_mute_hotkey": "F24",
     "ask_timeout_seconds": 30,
-    "onboarding_completed": true
+    "onboarding_completed": false
 }
