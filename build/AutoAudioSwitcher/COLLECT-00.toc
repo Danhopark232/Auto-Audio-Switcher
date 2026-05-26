@@ -2825,6 +2825,10 @@
   ('_tkinter.pyd',
    'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\DLLs\\_tkinter.pyd',
    'EXTENSION'),
+  ('assets\\app_icon.png',
+   'D:\\programs\\auto audio '
+   'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\app_icon.png',
+   'DATA'),
   ('assets\\icons\\NoAppDetected.png',
    'D:\\programs\\auto audio '
    'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\NoAppDetected.png',
@@ -2841,9 +2845,17 @@
    'D:\\programs\\auto audio '
    'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\edit.png',
    'DATA'),
+  ('assets\\icons\\edit_b.png',
+   'D:\\programs\\auto audio '
+   'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\edit_b.png',
+   'DATA'),
   ('assets\\icons\\gear.png',
    'D:\\programs\\auto audio '
    'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\gear.png',
+   'DATA'),
+  ('assets\\icons\\gear_b.png',
+   'D:\\programs\\auto audio '
+   'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\gear_b.png',
    'DATA'),
   ('assets\\icons\\handle.png',
    'D:\\programs\\auto audio '
@@ -2852,6 +2864,50 @@
   ('assets\\icons\\headset.png',
    'D:\\programs\\auto audio '
    'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\headset.png',
+   'DATA'),
+  ('assets\\icons\\headset_b.png',
+   'D:\\programs\\auto audio '
+   'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\headset_b.png',
+   'DATA'),
+  ('assets\\icons\\icon_candidates\\candidate_1_blue_sync.ico',
+   'D:\\programs\\auto audio '
+   'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\icon_candidates\\candidate_1_blue_sync.ico',
+   'DATA'),
+  ('assets\\icons\\icon_candidates\\candidate_1_blue_sync_256.png',
+   'D:\\programs\\auto audio '
+   'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\icon_candidates\\candidate_1_blue_sync_256.png',
+   'DATA'),
+  ('assets\\icons\\icon_candidates\\candidate_1_blue_sync_mini_18.png',
+   'D:\\programs\\auto audio '
+   'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\icon_candidates\\candidate_1_blue_sync_mini_18.png',
+   'DATA'),
+  ('assets\\icons\\icon_candidates\\candidate_2_ink_orbit.ico',
+   'D:\\programs\\auto audio '
+   'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\icon_candidates\\candidate_2_ink_orbit.ico',
+   'DATA'),
+  ('assets\\icons\\icon_candidates\\candidate_2_ink_orbit_256.png',
+   'D:\\programs\\auto audio '
+   'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\icon_candidates\\candidate_2_ink_orbit_256.png',
+   'DATA'),
+  ('assets\\icons\\icon_candidates\\candidate_2_ink_orbit_mini_18.png',
+   'D:\\programs\\auto audio '
+   'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\icon_candidates\\candidate_2_ink_orbit_mini_18.png',
+   'DATA'),
+  ('assets\\icons\\icon_candidates\\candidate_3_cyan_loop.ico',
+   'D:\\programs\\auto audio '
+   'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\icon_candidates\\candidate_3_cyan_loop.ico',
+   'DATA'),
+  ('assets\\icons\\icon_candidates\\candidate_3_cyan_loop_256.png',
+   'D:\\programs\\auto audio '
+   'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\icon_candidates\\candidate_3_cyan_loop_256.png',
+   'DATA'),
+  ('assets\\icons\\icon_candidates\\candidate_3_cyan_loop_mini_18.png',
+   'D:\\programs\\auto audio '
+   'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\icon_candidates\\candidate_3_cyan_loop_mini_18.png',
+   'DATA'),
+  ('assets\\icons\\icon_candidates\\preview.png',
+   'D:\\programs\\auto audio '
+   'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\icon_candidates\\preview.png',
    'DATA'),
   ('assets\\icons\\mic.png',
    'D:\\programs\\auto audio '
@@ -2869,9 +2925,17 @@
    'D:\\programs\\auto audio '
    'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\speaker.png',
    'DATA'),
+  ('assets\\icons\\speaker_b.png',
+   'D:\\programs\\auto audio '
+   'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\speaker_b.png',
+   'DATA'),
   ('assets\\icons\\trash.png',
    'D:\\programs\\auto audio '
    'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\trash.png',
+   'DATA'),
+  ('assets\\icons\\trash_b.png',
+   'D:\\programs\\auto audio '
+   'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\icons\\trash_b.png',
    'DATA'),
   ('base_library.zip',
    'D:\\programs\\auto audio '

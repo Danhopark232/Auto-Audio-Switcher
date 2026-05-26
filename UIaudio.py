@@ -1,4 +1,4 @@
-import json
+﻿import json
 import math
 import os
 import queue
@@ -25,12 +25,15 @@ from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageTk
 APP_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
 RESOURCE_DIR = getattr(sys, "_MEIPASS", APP_DIR)
 CONFIG_FILE = os.path.join(APP_DIR, "config.json")
+APP_ICON_FILE = os.path.join(RESOURCE_DIR, "assets", "app_icon.png")
 ICON_DIR = os.path.join(RESOURCE_DIR, "assets", "icons")
 CHECK_INTERVAL_SECONDS = 2
 ASK_TIMEOUT_SECONDS = 25
+ASK_TIMEOUT_OPTION_SECONDS = list(range(5, 125, 5))
 NOTIFICATION_SECONDS = 4
 STARTUP_MINI_POPUP_SECONDS = 3
-MINI_WIDTH = 420
+SHOW_STARTUP_ONBOARDING_EVERY_RUN = False
+MINI_WIDTH = 546
 MINI_HEIGHT = 94
 MINI_ANIMATION_STEPS = 12
 MINI_ANIMATION_INTERVAL_MS = 14
@@ -48,9 +51,11 @@ MINI_DETECTED_ICON_CORNER_RADIUS = 7
 MINI_DEVICE_BUTTON_WIDTH = 52
 MINI_DEVICE_BUTTON_HEIGHT = 42
 MINI_DEVICE_BUTTON_GAP = 6
-MINI_BUTTON_ACTIVE_GRADIENT_START = "#2563E8"
-MINI_BUTTON_ACTIVE_GRADIENT_END = "#153782"
-MINI_BUTTON_INACTIVE_COLOR = "#1C1C1C"
+ACTIVE_GRADIENT_START = "#C6FF34"
+ACTIVE_GRADIENT_END = "#BBEB41"
+MINI_BUTTON_ACTIVE_GRADIENT_START = ACTIVE_GRADIENT_START
+MINI_BUTTON_ACTIVE_GRADIENT_END = ACTIVE_GRADIENT_END
+MINI_BUTTON_INACTIVE_COLOR = "#20073F"
 MINI_BG_GRADIENT_START = "#16123D"
 MINI_BG_GRADIENT_END = "#070707"
 MINI_BG_FALLBACK = "#0E0B24"
@@ -76,19 +81,20 @@ SETTINGS_PANEL_BG = "#191919"
 SETTINGS_ROW_BG = "#1C1C1C"
 SETTINGS_GRADIENT_START = "#282828"
 SETTINGS_GRADIENT_END = "#171717"
-SETTINGS_DEVICE_ACTIVE_START = "#2563E8"
-SETTINGS_DEVICE_ACTIVE_END = "#153782"
+SETTINGS_DEVICE_ACTIVE_START = ACTIVE_GRADIENT_START
+SETTINGS_DEVICE_ACTIVE_END = ACTIVE_GRADIENT_END
 SETTINGS_SEPARATOR_COLOR = "#0C131F"
 CARD_BG = "#1A1A1A"
 CONTROL_BG = "#333333"
 CONTROL_HOVER = "#414141"
 FIELD_BG = "#303335"
 FIELD_BORDER = "#4A4D50"
-ACTIVE_COLOR = "#2563EB"
+ACTIVE_COLOR = ACTIVE_GRADIENT_END
+ACTIVE_HOVER_COLOR = "#A8D532"
 MIC_MUTED_COLOR = "#7F1D1D"
 MIC_ACTIVE_COLOR = "#334155"
-DEVICE_ACTIVE_COLOR = "#3B82F6"
-DEVICE_INACTIVE_COLOR = "#1E293B"
+DEVICE_ACTIVE_COLOR = ACTIVE_GRADIENT_END
+DEVICE_INACTIVE_COLOR = "#20073F"
 SPI_GETWORKAREA = 0x0030
 DWMWA_USE_IMMERSIVE_DARK_MODE = 20
 DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19
@@ -241,14 +247,31 @@ def get_icon_from_image(image_path, size=32, source_size=None, corner_radius=0):
         return None
 
 
+def make_app_icon_image(size=64):
+    try:
+        image = Image.open(APP_ICON_FILE).convert("RGBA")
+        image.thumbnail((size, size), Image.LANCZOS)
+        canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        canvas.alpha_composite(image, ((size - image.width) // 2, (size - image.height) // 2))
+        return canvas
+    except Exception:
+        image = Image.new("RGBA", (size, size), (26, 26, 26, 255))
+        draw = ImageDraw.Draw(image)
+        pad = max(2, size // 8)
+        draw.rounded_rectangle((pad, pad, size - pad, size - pad), radius=max(4, size // 5), fill=(187, 235, 65, 255))
+        draw.arc((size * 0.28, size * 0.27, size * 0.72, size * 0.72), 205, 335, fill=(255, 255, 255, 255), width=max(2, size // 12))
+        draw.rectangle((size * 0.26, size * 0.46, size * 0.38, size * 0.62), fill=(255, 255, 255, 255))
+        draw.rectangle((size * 0.62, size * 0.46, size * 0.74, size * 0.62), fill=(255, 255, 255, 255))
+        return image
+
+
+def make_app_icon(size=18):
+    image = make_app_icon_image(size)
+    return ctk.CTkImage(light_image=image, dark_image=image, size=(size, size))
+
+
 def make_tray_image():
-    image = Image.new("RGBA", (64, 64), (26, 26, 26, 255))
-    draw = ImageDraw.Draw(image)
-    draw.rounded_rectangle((8, 8, 56, 56), radius=14, fill=(59, 130, 246, 255))
-    draw.arc((18, 17, 46, 47), 205, 335, fill=(255, 255, 255, 255), width=5)
-    draw.rectangle((17, 29, 25, 39), fill=(255, 255, 255, 255))
-    draw.rectangle((39, 29, 47, 39), fill=(255, 255, 255, 255))
-    return image
+    return make_app_icon_image(64)
 
 
 def draw_ui_icon_image(kind, size=64, color=(245, 245, 245, 255)):
@@ -338,13 +361,59 @@ def ensure_icon_assets():
             draw_ui_icon_image(name, size=128).save(path)
 
 
-def make_ui_icon(kind, size=28):
+def load_icon_image(kind, black=False, fallback_size=128):
+    black_path = os.path.join(ICON_DIR, f"{kind}_b.png")
     path = os.path.join(ICON_DIR, f"{kind}.png")
+    if black and os.path.exists(black_path):
+        return Image.open(black_path).convert("RGBA")
     try:
         image = Image.open(path).convert("RGBA")
+        if black:
+            alpha = image.getchannel("A")
+            image = Image.new("RGBA", image.size, (0, 0, 0, 255))
+            image.putalpha(alpha)
+        return image
     except Exception:
-        image = draw_ui_icon_image(kind, size=128)
+        color = (0, 0, 0, 255) if black else (245, 245, 245, 255)
+        return draw_ui_icon_image(kind, size=fallback_size, color=color)
+
+
+def make_ui_icon(kind, size=28, black=False):
+    image = load_icon_image(kind, black=black)
     return ctk.CTkImage(light_image=image, dark_image=image, size=(size, size))
+
+
+def make_ui_icon_photo(kind, size=28):
+    image = load_icon_image(kind)
+    image.thumbnail((size, size), Image.LANCZOS)
+    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    canvas.alpha_composite(image, ((size - image.width) // 2, (size - image.height) // 2))
+    return ImageTk.PhotoImage(canvas)
+
+
+def ctk_image_to_photo(image, appearance_mode="dark"):
+    if isinstance(image, ctk.CTkImage):
+        return image.create_scaled_photo_image(1, appearance_mode)
+    return image
+
+
+def get_windows_font_path(filename):
+    return os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts", filename)
+
+
+def get_pil_text_font(size, bold=False):
+    candidates = (
+        ["malgunbd.ttf", "malgun.ttf", "segoeuib.ttf", "segoeui.ttf"]
+        if bold
+        else ["malgun.ttf", "malgunsl.ttf", "segoeui.ttf"]
+    )
+    for name in candidates:
+        for source in (get_windows_font_path(name), name):
+            try:
+                return ImageFont.truetype(source, size)
+            except Exception:
+                continue
+    return ImageFont.load_default()
 
 
 def hex_to_rgb(hex_color):
@@ -385,8 +454,14 @@ def make_mini_background_image():
     return ImageTk.PhotoImage(image)
 
 
+def make_mini_background_slice(width, height, x, y):
+    background = create_linear_gradient(MINI_WIDTH, MINI_HEIGHT, MINI_BG_GRADIENT_START, MINI_BG_GRADIENT_END, angle_degrees=91)
+    image = background.crop((x, y, x + width, y + height))
+    return ImageTk.PhotoImage(image)
+
+
 def make_setting_device_header_image(kind, text, active, width=269, height=39):
-    background = Image.new("RGBA", (width, height), DEVICE_ACTIVE_COLOR if active else DEVICE_INACTIVE_COLOR)
+    background = create_css_like_gradient(width, height, SETTINGS_DEVICE_ACTIVE_START, SETTINGS_DEVICE_ACTIVE_END) if active else Image.new("RGBA", (width, height), DEVICE_INACTIVE_COLOR)
 
     mask = Image.new("L", (width, height), 0)
     draw = ImageDraw.Draw(mask)
@@ -395,17 +470,10 @@ def make_setting_device_header_image(kind, text, active, width=269, height=39):
     image.alpha_composite(background)
     image.putalpha(mask)
 
-    icon_path = os.path.join(ICON_DIR, f"{kind}.png")
-    try:
-        icon = Image.open(icon_path).convert("RGBA")
-    except Exception:
-        icon = draw_ui_icon_image(kind, size=128)
+    icon = load_icon_image(kind, black=active)
     icon.thumbnail((24, 24), Image.LANCZOS)
 
-    try:
-        text_font = ImageFont.truetype("segoeui.ttf", 18)
-    except Exception:
-        text_font = ImageFont.load_default()
+    text_font = get_pil_text_font(18)
 
     draw = ImageDraw.Draw(image)
     bbox = draw.textbbox((0, 0), text, font=text_font)
@@ -413,31 +481,29 @@ def make_setting_device_header_image(kind, text, active, width=269, height=39):
     x = (width - content_width) // 2
     y = (height - icon.height) // 2
     image.alpha_composite(icon, (x, y))
-    draw.text((x + icon.width + 8, (height - (bbox[3] - bbox[1])) / 2 - 1), text, fill=(255, 255, 255, 255), font=text_font)
+    text_fill = (0, 0, 0, 255) if active else (255, 255, 255, 255)
+    draw.text((x + icon.width + 8, (height - (bbox[3] - bbox[1])) / 2 - 1), text, fill=text_fill, font=text_font)
     return ctk.CTkImage(light_image=image, dark_image=image, size=(width, height))
 
 
 def make_setting_device_dropdown_image(text, active, width=269, height=37):
-    bg_color = DEVICE_ACTIVE_COLOR if active else DEVICE_INACTIVE_COLOR
-    image = Image.new("RGBA", (width, height), bg_color)
+    image = create_css_like_gradient(width, height, SETTINGS_DEVICE_ACTIVE_START, SETTINGS_DEVICE_ACTIVE_END) if active else Image.new("RGBA", (width, height), DEVICE_INACTIVE_COLOR)
     mask = Image.new("L", (width, height), 0)
     draw_mask = ImageDraw.Draw(mask)
     draw_mask.rounded_rectangle((0, -6, width - 1, height - 1), radius=5, fill=255)
     image.putalpha(mask)
 
-    try:
-        text_font = ImageFont.truetype("segoeui.ttf", 12)
-    except Exception:
-        text_font = ImageFont.load_default()
+    text_font = get_pil_text_font(12)
 
     draw = ImageDraw.Draw(image)
     display_text = text if len(text) <= 28 else text[:25] + "..."
     bbox = draw.textbbox((0, 0), display_text, font=text_font)
     text_width = bbox[2] - bbox[0]
     text_height = bbox[3] - bbox[1]
-    draw.text(((width - text_width) / 2 - 8, (height - text_height) / 2 - 1), display_text, fill=(255, 255, 255, 255), font=text_font)
+    text_fill = (0, 0, 0, 255) if active else (255, 255, 255, 255)
+    draw.text(((width - text_width) / 2 - 8, (height - text_height) / 2 - 1), display_text, fill=text_fill, font=text_font)
     triangle = [(width - 24, height // 2 - 3), (width - 12, height // 2 - 3), (width - 18, height // 2 + 4)]
-    draw.polygon(triangle, fill=(255, 255, 255, 255))
+    draw.polygon(triangle, fill=text_fill)
     return ctk.CTkImage(light_image=image, dark_image=image, size=(width, height))
 
 
@@ -452,10 +518,7 @@ def make_settings_segment_image(text, width, height=37, icon_kind=None, rounded_
         draw_mask.rectangle((width - 7, 0, width, height), fill=255)
     image.putalpha(mask)
 
-    try:
-        text_font = ImageFont.truetype("segoeuib.ttf" if icon_kind else "segoeui.ttf", 15 if icon_kind else 14)
-    except Exception:
-        text_font = ImageFont.load_default()
+    text_font = get_pil_text_font(15 if icon_kind else 14, bold=bool(icon_kind))
 
     icon = None
     if icon_kind:
@@ -481,10 +544,7 @@ def make_settings_segment_image(text, width, height=37, icon_kind=None, rounded_
 def make_settings_dropdown_segment_image(text, width, height=37):
     image = Image.new("RGBA", (width, height), CONTROL_BG)
 
-    try:
-        text_font = ImageFont.truetype("segoeui.ttf", 13)
-    except Exception:
-        text_font = ImageFont.load_default()
+    text_font = get_pil_text_font(13)
 
     draw = ImageDraw.Draw(image)
     display_text = text
@@ -510,6 +570,36 @@ def make_settings_dropdown_segment_image(text, width, height=37):
     return ctk.CTkImage(light_image=image, dark_image=image, size=(width, height))
 
 
+def make_onboarding_dropdown_image(text, width, height=38):
+    button_width = 52
+    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    left = Image.new("RGBA", (width - button_width, height), CONTROL_BG)
+    right = create_css_like_gradient(button_width, height, ACTIVE_GRADIENT_START, ACTIVE_GRADIENT_END)
+    image.alpha_composite(left, (0, 0))
+    image.alpha_composite(right, (width - button_width, 0))
+
+    mask = Image.new("L", (width, height), 0)
+    mask_draw = ImageDraw.Draw(mask)
+    mask_draw.rounded_rectangle((0, 0, width - 1, height - 1), radius=5, fill=255)
+    image.putalpha(mask)
+
+    text_font = get_pil_text_font(13)
+    draw = ImageDraw.Draw(image)
+    display_text = text or ""
+    max_text_width = max(24, width - button_width - 24)
+    while display_text and draw.textbbox((0, 0), display_text, font=text_font)[2] > max_text_width:
+        display_text = display_text[:-1]
+    if display_text != (text or "") and len(display_text) > 3:
+        display_text = display_text[:-3] + "..."
+    bbox = draw.textbbox((0, 0), display_text, font=text_font)
+    draw.text((10, (height - (bbox[3] - bbox[1])) / 2 - bbox[1]), display_text, fill=(255, 255, 255, 255), font=text_font)
+
+    arrow_x = width - button_width // 2
+    arrow_y = height // 2
+    draw.line((arrow_x - 5, arrow_y - 2, arrow_x, arrow_y + 3, arrow_x + 5, arrow_y - 2), fill=(0, 0, 0, 255), width=2)
+    return ctk.CTkImage(light_image=image, dark_image=image, size=(width, height))
+
+
 def make_settings_gradient_image(width, height):
     return ImageTk.PhotoImage(create_linear_gradient(max(1, width), max(1, height), SETTINGS_GRADIENT_START, SETTINGS_GRADIENT_END, angle_degrees=160, solid_until=0.0071))
 
@@ -531,16 +621,70 @@ def make_mini_button_image(kind, active=False, muted=False):
     button.alpha_composite(background)
     button.putalpha(mask)
 
-    path = os.path.join(ICON_DIR, f"{kind}.png")
-    try:
-        icon = Image.open(path).convert("RGBA")
-    except Exception:
-        icon = draw_ui_icon_image(kind, size=128)
+    icon = load_icon_image(kind, black=active)
     icon.thumbnail((28, 28), Image.LANCZOS)
     x = (width - icon.width) // 2
     y = (height - icon.height) // 2
     button.alpha_composite(icon, (x, y))
     return ctk.CTkImage(light_image=button, dark_image=button, size=(width, height))
+
+
+def make_ask_button_photo(text, fill_color, width=72, height=42, text_color=(255, 255, 255, 255), bold=False):
+    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((0, 0, width - 1, height - 1), radius=5, fill=fill_color)
+    text_font = get_pil_text_font(13, bold=bold)
+    bbox = draw.textbbox((0, 0), text, font=text_font)
+    draw.text(
+        ((width - (bbox[2] - bbox[0])) / 2, (height - (bbox[3] - bbox[1])) / 2 - bbox[1] - 1),
+        text,
+        fill=text_color,
+        font=text_font,
+    )
+    return ImageTk.PhotoImage(image)
+
+
+def make_ask_before_change_preview_image(width=468, height=118):
+    image = Image.new("RGBA", (width, height), (16, 16, 16, 255))
+    draw = ImageDraw.Draw(image)
+
+    prompt_y = 14
+    prompt_h = 74
+    prompt = create_linear_gradient(width, prompt_h, MINI_BG_GRADIENT_START, MINI_BG_GRADIENT_END, angle_degrees=91)
+    image.alpha_composite(prompt, (0, prompt_y))
+
+    icon = draw_ui_icon_image("headset", size=128)
+    icon.thumbnail((28, 28), Image.LANCZOS)
+    image.alpha_composite(icon, (28, prompt_y + 23))
+
+    title_font = get_pil_text_font(20, bold=True)
+    detail_font = get_pil_text_font(13)
+    draw.text((70, prompt_y + 18), "Switch to Headset?", fill=(255, 255, 255, 255), font=title_font)
+    draw.text((70, prompt_y + 48), "Aviassembly  |  24s", fill=(184, 184, 184, 255), font=detail_font)
+
+    yes = Image.new("RGBA", (82, 42), ACTIVE_COLOR)
+    yes_mask = Image.new("L", (82, 42), 0)
+    ImageDraw.Draw(yes_mask).rounded_rectangle((0, 0, 81, 41), radius=5, fill=255)
+    yes.putalpha(yes_mask)
+    yes_draw = ImageDraw.Draw(yes)
+    yes_font = get_pil_text_font(14, bold=True)
+    bbox = yes_draw.textbbox((0, 0), "Yes", font=yes_font)
+    yes_draw.text(((82 - (bbox[2] - bbox[0])) / 2, (42 - (bbox[3] - bbox[1])) / 2 - bbox[1]), "Yes", fill=(0, 0, 0, 255), font=yes_font)
+    image.alpha_composite(yes, (width - 190, prompt_y + 16))
+
+    no = Image.new("RGBA", (82, 42), (68, 68, 68, 255))
+    no_mask = Image.new("L", (82, 42), 0)
+    ImageDraw.Draw(no_mask).rounded_rectangle((0, 0, 81, 41), radius=5, fill=255)
+    no.putalpha(no_mask)
+    no_draw = ImageDraw.Draw(no)
+    bbox = no_draw.textbbox((0, 0), "No", font=detail_font)
+    no_draw.text(((82 - (bbox[2] - bbox[0])) / 2, (42 - (bbox[3] - bbox[1])) / 2 - bbox[1]), "No", fill=(255, 255, 255, 255), font=detail_font)
+    image.alpha_composite(no, (width - 100, prompt_y + 16))
+
+    taskbar_y = prompt_y + prompt_h
+    draw.rectangle((0, taskbar_y, width, height), fill=(32, 31, 22, 255))
+    draw.line((0, taskbar_y, width, taskbar_y), fill=(75, 75, 58, 255), width=1)
+    return ctk.CTkImage(light_image=image, dark_image=image, size=(width, height))
 
 
 class AutoAudioApp(ctk.CTk):
@@ -566,6 +710,7 @@ class AutoAudioApp(ctk.CTk):
         self.ask_restore_program = None
         self.ask_restore_prompt_key = None
         self.notification_active = False
+        self.onboarding_active = False
         self.drag_data = None
         self.mini_animation_after_id = None
         self.mini_pinned_by_user = False
@@ -580,8 +725,11 @@ class AutoAudioApp(ctk.CTk):
         self.tray = None
         ensure_icon_assets()
         self.icons = {
+            "app": make_app_icon(18),
             "speaker": make_ui_icon("speaker", 28),
+            "speaker_b": make_ui_icon("speaker", 28, black=True),
             "headset": make_ui_icon("headset", 28),
+            "headset_b": make_ui_icon("headset", 28, black=True),
             "gear": make_ui_icon("gear", 22),
             "trash": make_ui_icon("trash", 28),
             "handle": make_ui_icon("handle", 24),
@@ -592,6 +740,7 @@ class AutoAudioApp(ctk.CTk):
             "mic_muted": make_ui_icon("mic_muted", 28),
             "no_app": make_ui_icon("NoAppDetected", MINI_DETECTED_ICON_SIZE),
         }
+        self.app_window_icon_photo = ImageTk.PhotoImage(make_app_icon_image(64))
         self.mini_button_images = {
             "mic": make_mini_button_image("mic", active=False),
             "mic_muted": make_mini_button_image("mic_muted", muted=True),
@@ -602,8 +751,10 @@ class AutoAudioApp(ctk.CTk):
         }
         self.current_detected_icon = self.icons["no_app"]
         self.audio_device_names = self.get_output_device_names()
+        self.sync_audio_config_with_devices(save_changes=True)
 
         self.title("Auto Audio Switcher")
+        self.iconphoto(True, self.app_window_icon_photo)
         self.protocol("WM_DELETE_WINDOW", self.on_window_close)
 
         self.set_ui_mode("mini")
@@ -618,6 +769,7 @@ class AutoAudioApp(ctk.CTk):
             self.switch_mode("mini")
         else:
             self.show_startup_mini_popup()
+        self.after(250, self.show_startup_onboarding_popups)
 
         self.monitor_thread = threading.Thread(target=self.monitor_loop, daemon=True)
         self.monitor_thread.start()
@@ -627,19 +779,203 @@ class AutoAudioApp(ctk.CTk):
         self.after(STARTUP_MINI_POPUP_SECONDS * 1000, self.hide_startup_mini_popup)
 
     def hide_startup_mini_popup(self):
-        if self.is_mini and self.winfo_viewable() and not self.ask_active and not self.notification_active and not self.mini_pinned_by_user:
+        if self.is_mini and self.winfo_viewable() and not self.ask_active and not self.notification_active and not self.onboarding_active and not self.mini_pinned_by_user:
             self.hide_to_tray()
+
+    def restore_mini_focus_after_onboarding(self):
+        if not self.is_mini or not self.winfo_viewable():
+            return
+        self.mini_pinned_by_user = False
+        self.bind("<FocusOut>", self.on_mini_focus_out)
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+        self.after(STARTUP_MINI_POPUP_SECONDS * 1000, self.hide_startup_mini_popup)
+
+    def show_startup_onboarding_popups(self):
+        # Development mode: keep showing these every launch. Later set
+        # SHOW_STARTUP_ONBOARDING_EVERY_RUN to False to make this first-run only.
+        if not SHOW_STARTUP_ONBOARDING_EVERY_RUN and self.config_data.get("onboarding_completed"):
+            return
+        self.onboarding_active = True
+        self.show_audio_output_setup_popup()
+
+    def show_audio_output_setup_popup(self):
+        self.audio_device_names = self.get_output_device_names()
+        device_options = self.build_device_options()
+        speaker_default = self.config_data.get("speaker_name") if self.config_data.get("speaker_name") in device_options else device_options[0]
+        headset_default = self.config_data.get("headset_name") if self.config_data.get("headset_name") in device_options else device_options[0]
+
+        popup = ctk.CTkToplevel(self)
+
+        def finish():
+            if device_options and device_options[0] != "No audio device found":
+                self.config_data["speaker_name"] = speaker_var.get()
+                self.config_data["headset_name"] = headset_var.get()
+                self.save_config()
+            try:
+                popup.grab_release()
+            except Exception:
+                pass
+            if popup.winfo_exists():
+                popup.destroy()
+            self.after(STARTUP_MINI_POPUP_SECONDS * 1000, self.hide_startup_mini_popup)
+            self.after(120, self.show_change_mode_intro_popup)
+
+        self.prepare_popup(
+            popup,
+            "Audio Output Setup",
+            520,
+            352,
+            grab=False,
+            close_command=finish,
+            allow_minimize=False,
+            center_on_screen=True,
+        )
+        popup.protocol("WM_DELETE_WINDOW", finish)
+
+        body = ctk.CTkFrame(popup, fg_color=WINDOW_BG, corner_radius=0)
+        body.pack(fill="both", expand=True, padx=18, pady=14)
+
+        ctk.CTkLabel(body, text="Choose audio outputs", font=("Segoe UI", 22, "bold"), text_color="white").pack(anchor="w")
+        ctk.CTkLabel(
+            body,
+            text="Select which Windows output device should be used for each mode.",
+            font=("Segoe UI", 13),
+            text_color="#B8B8B8",
+            anchor="w",
+            justify="left",
+        ).pack(anchor="w", pady=(4, 14))
+
+        speaker_var = ctk.StringVar(value=speaker_default)
+        headset_var = ctk.StringVar(value=headset_default)
+
+        for label_text, variable in (("Speaker output", speaker_var), ("Headset output", headset_var)):
+            ctk.CTkLabel(body, text=label_text, font=("Segoe UI", 13, "bold"), text_color="#E8E8E8").pack(anchor="w", pady=(0, 5))
+            self.create_onboarding_device_dropdown(body, variable, device_options).pack(fill="x", pady=(0, 12))
+
+        ctk.CTkButton(
+            body,
+            text="Continue",
+            height=40,
+            fg_color=ACTIVE_COLOR,
+            hover_color=ACTIVE_HOVER_COLOR,
+            text_color="black",
+            corner_radius=6,
+            command=finish,
+        ).pack(fill="x", pady=(0, 0))
+        popup.after(100, popup.focus_force)
+
+    def create_onboarding_device_dropdown(self, parent, variable, values):
+        width = 484
+        label = ctk.CTkLabel(parent, text="", width=width, height=38, cursor="hand2")
+        menu = tk.Menu(
+            label,
+            tearoff=0,
+            background=SURFACE_BG,
+            foreground="white",
+            activebackground=CONTROL_HOVER,
+            activeforeground="white",
+        )
+
+        def refresh():
+            image = make_onboarding_dropdown_image(variable.get(), width)
+            label._onboarding_dropdown_image = image
+            label.configure(image=image)
+
+        def select(value):
+            variable.set(value)
+            refresh()
+
+        for value in values:
+            menu.add_command(label=value, command=lambda selected=value: select(selected))
+
+        def open_menu(event=None):
+            try:
+                menu.tk_popup(label.winfo_rootx(), label.winfo_rooty() + label.winfo_height())
+            finally:
+                menu.grab_release()
+
+        label.bind("<Button-1>", open_menu)
+        refresh()
+        return label
+
+    def show_change_mode_intro_popup(self):
+        popup = ctk.CTkToplevel(self)
+
+        def finish():
+            self.config_data["onboarding_completed"] = True
+            self.save_config()
+            self.onboarding_active = False
+            try:
+                popup.grab_release()
+            except Exception:
+                pass
+            if popup.winfo_exists():
+                popup.destroy()
+            self.after(80, self.restore_mini_focus_after_onboarding)
+
+        self.prepare_popup(
+            popup,
+            "Change Mode Guide",
+            540,
+            500,
+            grab=False,
+            close_command=finish,
+            allow_minimize=False,
+            center_on_screen=True,
+        )
+        popup.protocol("WM_DELETE_WINDOW", finish)
+
+        body = ctk.CTkFrame(popup, fg_color=WINDOW_BG, corner_radius=0)
+        body.pack(fill="both", expand=True, padx=18, pady=16)
+
+        ctk.CTkLabel(body, text="How program rules work", font=("Segoe UI", 22, "bold"), text_color="white").pack(anchor="w")
+        ctk.CTkLabel(
+            body,
+            text="Use these two lists depending on how much control you want.",
+            font=("Segoe UI", 13),
+            text_color="#B8B8B8",
+            anchor="w",
+            justify="left",
+        ).pack(anchor="w", pady=(4, 16))
+
+        for title, description in (
+            ("Auto Change", "When a matching program is detected, the audio output changes immediately."),
+            ("Ask Before Change", "When a matching program is detected, a small prompt asks before switching."),
+        ):
+            card = ctk.CTkFrame(body, fg_color=PANEL_BG, corner_radius=8)
+            card.pack(fill="x", pady=(0, 10))
+            ctk.CTkLabel(card, text=title, font=("Segoe UI", 15, "bold"), text_color="white").pack(anchor="w", padx=14, pady=(12, 2))
+            ctk.CTkLabel(card, text=description, font=("Segoe UI", 12), text_color="#B8B8B8", anchor="w", justify="left", wraplength=470).pack(anchor="w", padx=14, pady=(0, 12))
+            if title == "Ask Before Change":
+                self.ask_before_change_preview_image = make_ask_before_change_preview_image()
+                ctk.CTkLabel(card, text="", image=self.ask_before_change_preview_image).pack(fill="x", padx=14, pady=(0, 14))
+
+        ctk.CTkButton(
+            body,
+            text="Got it",
+            height=40,
+            fg_color=ACTIVE_COLOR,
+            hover_color=ACTIVE_HOVER_COLOR,
+            text_color="black",
+            corner_radius=6,
+            command=finish,
+        ).pack(fill="x", pady=(2, 0))
+        popup.after(100, popup.focus_force)
 
     def default_config(self):
         return {
-            "headset_name": "Headset",
-            "speaker_name": "Speakers",
+            "headset_name": "",
+            "speaker_name": "",
             "auto_list": [],
             "ask_list": [],
             "start_with_windows": False,
             "settings_geometry": "",
             "microphone_name": DEFAULT_MICROPHONE_LABEL,
             "microphone_mute_hotkey": "",
+            "ask_timeout_seconds": ASK_TIMEOUT_SECONDS,
+            "onboarding_completed": False,
         }
 
     def load_config(self):
@@ -655,7 +991,26 @@ class AutoAudioApp(ctk.CTk):
 
         config["auto_list"] = self.normalize_program_list(config.get("auto_list", []))
         config["ask_list"] = self.normalize_program_list(config.get("ask_list", []))
+        config["ask_timeout_seconds"] = self.parse_ask_timeout_seconds(config.get("ask_timeout_seconds", ASK_TIMEOUT_SECONDS))
         return config
+
+    def parse_ask_timeout_seconds(self, value):
+        if isinstance(value, str):
+            cleaned = value.strip().lower()
+            for suffix in ("seconds", "second", "secs", "sec", "s"):
+                cleaned = cleaned.replace(suffix, "")
+            value = cleaned.strip()
+        try:
+            seconds = int(float(value))
+        except (TypeError, ValueError):
+            seconds = ASK_TIMEOUT_SECONDS
+        return max(1, seconds)
+
+    def get_ask_timeout_seconds(self):
+        return self.parse_ask_timeout_seconds(self.config_data.get("ask_timeout_seconds", ASK_TIMEOUT_SECONDS))
+
+    def format_ask_timeout_seconds(self, seconds=None):
+        return f"{self.parse_ask_timeout_seconds(seconds if seconds is not None else self.get_ask_timeout_seconds())}s"
 
     def normalize_program_list(self, value):
         normalized = []
@@ -877,6 +1232,13 @@ class AutoAudioApp(ctk.CTk):
         y = parent_y + max(0, (parent_height - height) // 2)
         return f"{width}x{height}+{x}+{y}"
 
+    def center_screen_geometry(self, width, height):
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        x = max(0, (screen_width - width) // 2)
+        y = max(0, (screen_height - height) // 2)
+        return f"{width}x{height}+{x}+{y}"
+
     def bind_popup_drag(self, window, handle):
         drag = {"x": 0, "y": 0}
 
@@ -897,9 +1259,7 @@ class AutoAudioApp(ctk.CTk):
         titlebar.pack_propagate(False)
         self.bind_popup_drag(window, titlebar)
 
-        mark = ctk.CTkFrame(titlebar, width=18, height=18, corner_radius=4, fg_color="#E6E6E6")
-        mark.pack(side="left", padx=(7, 7), pady=5)
-        mark.pack_propagate(False)
+        ctk.CTkLabel(titlebar, text="", image=self.icons["app"], width=18, height=18).pack(side="left", padx=(7, 7), pady=5)
         ctk.CTkLabel(titlebar, text="Auto Audio", font=("Segoe UI", 11), text_color="#E8E8E8").pack(side="left")
 
         ctk.CTkButton(titlebar, text="", image=self.icons["close"], width=28, height=24, fg_color="transparent", hover_color="#333333", command=close_command).pack(side="right", padx=(0, 4))
@@ -908,15 +1268,20 @@ class AutoAudioApp(ctk.CTk):
         ctk.CTkButton(titlebar, text="", image=self.icons["gear"], width=30, height=24, fg_color="transparent", hover_color="#333333", command=lambda: self.switch_mode("settings")).pack(side="right", padx=2)
         return titlebar
 
-    def prepare_popup(self, window, title, width, height, grab=True):
+    def prepare_popup(self, window, title, width, height, grab=True, close_command=None, allow_minimize=True, center_on_screen=False):
         window.title(title)
-        window.geometry(self.center_child_geometry(width, height))
-        window.transient(self)
+        window.geometry(self.center_screen_geometry(width, height) if center_on_screen else self.center_child_geometry(width, height))
+        if self.winfo_viewable():
+            window.transient(self)
         window.overrideredirect(True)
         window.configure(fg_color=WINDOW_BG)
+        self.create_popup_titlebar(window, close_command=close_command, allow_minimize=allow_minimize)
+        window.deiconify()
+        window.attributes("-topmost", True)
+        window.lift()
+        window.focus_force()
         if grab:
             window.grab_set()
-        self.create_popup_titlebar(window)
 
     def get_output_device_names(self):
         try:
@@ -966,6 +1331,46 @@ class AutoAudioApp(ctk.CTk):
         except Exception:
             return []
 
+    def pick_audio_device(self, mode, devices, exclude=None):
+        devices = [name for name in devices if name and name != "No audio device found"]
+        if not devices:
+            return ""
+        excluded = {exclude} if exclude else set()
+        candidates = [name for name in devices if name not in excluded] or devices
+        hints = (
+            ("headset", "headphone", "headphones", "earbuds", "earphone", "arctis", "razer", "logitech", "wireless")
+            if mode == "headset"
+            else ("speaker", "speakers", "realtek", "monitor", "display", "hdmi", "pebble")
+        )
+        for name in candidates:
+            lowered = name.lower()
+            if any(hint in lowered for hint in hints):
+                return name
+        return candidates[0]
+
+    def sync_audio_config_with_devices(self, save_changes=False):
+        devices = [name for name in getattr(self, "audio_device_names", []) if name]
+        if not devices:
+            return False
+
+        changed = False
+        speaker = self.config_data.get("speaker_name") or ""
+        headset = self.config_data.get("headset_name") or ""
+
+        if speaker not in devices:
+            speaker = self.pick_audio_device("speaker", devices)
+            self.config_data["speaker_name"] = speaker
+            changed = True
+
+        if headset not in devices or (len(devices) > 1 and headset == speaker):
+            headset = self.pick_audio_device("headset", devices, exclude=speaker)
+            self.config_data["headset_name"] = headset
+            changed = True
+
+        if changed and save_changes:
+            self.save_config()
+        return changed
+
     def draw_ui(self):
         self.unbind("<FocusOut>")
         for widget in self.winfo_children():
@@ -977,13 +1382,14 @@ class AutoAudioApp(ctk.CTk):
             self.list_drop_targets = {}
             self.draw_settings_ui()
 
-    def create_marquee_label(self, parent, text, font_tuple, text_color, bg_color, height):
+    def create_marquee_label(self, parent, text, font_tuple, text_color, bg_color, height, bg_origin=None):
         canvas = tk.Canvas(parent, height=height, width=1, bg=bg_color, bd=0, highlightthickness=0, relief="flat")
         canvas._marquee_config = {
             "text": text or "",
             "font": font_tuple,
             "text_color": text_color,
             "bg_color": bg_color,
+            "bg_origin": bg_origin,
             "height": height,
             "offset": 0,
             "direction": 1,
@@ -1036,6 +1442,11 @@ class AutoAudioApp(ctk.CTk):
             canvas.delete("all")
             if width <= 1 or not text:
                 return
+            if config.get("bg_origin"):
+                bg_x, bg_y = config["bg_origin"]
+                photo = make_mini_background_slice(width, height, bg_x, bg_y)
+                canvas._marquee_bg_photo = photo
+                canvas.create_image(0, 0, image=photo, anchor="nw")
 
             text_font = config["font"]
             text_width = self.measure_text(text, text_font)
@@ -1052,7 +1463,7 @@ class AutoAudioApp(ctk.CTk):
             )
 
             if max_offset > 0:
-                self.draw_marquee_fade(canvas, config["bg_color"], width, height)
+                self.draw_marquee_fade(canvas, config["bg_color"], width, height, config.get("bg_origin"))
                 config["job"] = canvas.after(MARQUEE_INTERVAL_MS, lambda c=canvas: self.advance_marquee(c))
             else:
                 config["job"] = None
@@ -1094,14 +1505,45 @@ class AutoAudioApp(ctk.CTk):
         except Exception:
             return len(text) * 8
 
-    def draw_marquee_fade(self, canvas, bg_color, width, height):
+    def fit_text_to_width(self, text, font_tuple, max_width):
+        text = text or ""
+        if self.measure_text(text, font_tuple) <= max_width:
+            return text
+        ellipsis = "..."
+        while text and self.measure_text(text + ellipsis, font_tuple) > max_width:
+            text = text[:-1]
+        return text + ellipsis if text else ellipsis
+
+    def update_mini_detect_canvas(self, name=None, icon=None):
+        if not hasattr(self, "mini_canvas") or not self.mini_canvas.winfo_exists():
+            return
+        display_name = name or "No Program Detected"
+        display_icon = icon or self.icons.get("no_app")
+        font_tuple = ("Segoe UI", 17, "bold")
+        max_text_width = max(40, MINI_WIDTH - 76 - 168 - 30)
+        self.mini_canvas.itemconfigure(self.mini_name_item, text=self.fit_text_to_width(display_name, font_tuple, max_text_width))
+        self.mini_detected_photo = ctk_image_to_photo(display_icon)
+        self.mini_canvas.itemconfigure(self.mini_icon_item, image=self.mini_detected_photo)
+
+    def draw_marquee_fade(self, canvas, bg_color, width, height, bg_origin=None):
         fade_width = min(MARQUEE_FADE_WIDTH, max(1, width))
-        rgb = tuple(int(bg_color[index:index + 2], 16) for index in (1, 3, 5))
-        image = Image.new("RGBA", (fade_width, height), (*rgb, 0))
-        draw = ImageDraw.Draw(image)
-        for x in range(fade_width):
-            alpha = int(255 * ((x + 1) / fade_width))
-            draw.line((x, 0, x, height), fill=(*rgb, alpha))
+        if bg_origin:
+            bg_x, bg_y = bg_origin
+            background = create_linear_gradient(MINI_WIDTH, MINI_HEIGHT, MINI_BG_GRADIENT_START, MINI_BG_GRADIENT_END, angle_degrees=91)
+            image = background.crop((bg_x + width - fade_width, bg_y, bg_x + width, bg_y + height)).convert("RGBA")
+            alpha_mask = Image.new("L", (fade_width, height), 0)
+            mask_draw = ImageDraw.Draw(alpha_mask)
+            for x in range(fade_width):
+                alpha = int(255 * ((x + 1) / fade_width))
+                mask_draw.line((x, 0, x, height), fill=alpha)
+            image.putalpha(alpha_mask)
+        else:
+            rgb = tuple(int(bg_color[index:index + 2], 16) for index in (1, 3, 5))
+            image = Image.new("RGBA", (fade_width, height), (*rgb, 0))
+            draw = ImageDraw.Draw(image)
+            for x in range(fade_width):
+                alpha = int(255 * ((x + 1) / fade_width))
+                draw.line((x, 0, x, height), fill=(*rgb, alpha))
         photo = ImageTk.PhotoImage(image)
         canvas._marquee_fade_photo = photo
         canvas.create_image(width - fade_width, 0, image=photo, anchor="nw")
@@ -1115,6 +1557,7 @@ class AutoAudioApp(ctk.CTk):
             return
 
         mini_canvas = tk.Canvas(self, width=MINI_WIDTH, height=MINI_HEIGHT, highlightthickness=0, bd=0, bg=MINI_BG_FALLBACK)
+        self.mini_canvas = mini_canvas
         mini_canvas.pack(fill="both", expand=True)
         self.mini_bg_photo = make_mini_background_image()
         mini_canvas.create_image(0, 0, image=self.mini_bg_photo, anchor="nw")
@@ -1127,36 +1570,19 @@ class AutoAudioApp(ctk.CTk):
         header.bind("<ButtonPress-1>", self.start_move)
         header.bind("<B1-Motion>", self.do_move)
 
-        mark = ctk.CTkFrame(header, width=18, height=18, corner_radius=4, fg_color="#E6E6E6")
-        mark.pack(side="left", padx=(7, 7), pady=5)
-        mark.pack_propagate(False)
+        ctk.CTkLabel(header, text="", image=self.icons["app"], width=18, height=18).pack(side="left", padx=(7, 7), pady=5)
         ctk.CTkLabel(header, text="Auto Audio", font=("Segoe UI", 11), text_color="#E8E8E8").pack(side="left")
         ctk.CTkButton(header, text="", image=self.icons["close"], width=28, height=24, fg_color="transparent", hover_color="#333333", command=self.hide_to_tray).pack(side="right", padx=(0, 4))
         ctk.CTkButton(header, text="", image=self.icons["minimize"], width=28, height=24, fg_color="transparent", hover_color="#333333", command=self.hide_to_tray).pack(side="right", padx=2)
         ctk.CTkButton(header, text="", image=self.icons["gear"], width=34, height=24, fg_color="transparent", hover_color="#333333", command=lambda: self.switch_mode("settings")).pack(side="right", padx=4)
 
-        content = ctk.CTkFrame(mini_canvas, fg_color="transparent")
-        mini_canvas.create_window(12, 36, window=content, anchor="nw", width=MINI_WIDTH - 24, height=MINI_HEIGHT - 44)
-        content.pack_propagate(False)
+        self.mini_detected_photo = ctk_image_to_photo(self.current_detected_icon)
+        self.mini_icon_item = mini_canvas.create_image(38, 62, image=self.mini_detected_photo)
+        self.mini_name_item = mini_canvas.create_text(76, 62, text="", fill="white", font=("Segoe UI", 17, "bold"), anchor="w")
+        self.update_mini_detect_canvas(self.current_detected_name, self.current_detected_icon)
 
-        self.mini_icon_label = ctk.CTkLabel(content, text="", image=self.current_detected_icon, width=MINI_DETECTED_ICON_SIZE, height=MINI_DETECTED_ICON_SIZE, font=("Segoe UI", 12, "bold"))
-        self.mini_icon_label.pack(side="left")
-
-        text_frame = ctk.CTkFrame(content, fg_color="transparent")
-        text_frame.pack(side="left", fill="both", expand=True, padx=12)
-
-        self.mini_name_canvas = self.create_marquee_label(
-            text_frame,
-            self.current_detected_name,
-            ("Segoe UI", 17, "bold"),
-            "white",
-            MINI_BG_FALLBACK,
-            40,
-        )
-        self.mini_name_canvas.pack(fill="both", expand=True)
-
-        button_frame = ctk.CTkFrame(content, fg_color="transparent")
-        button_frame.pack(side="right")
+        button_frame = ctk.CTkFrame(mini_canvas, fg_color="transparent", bg_color="transparent")
+        mini_canvas.create_window(MINI_WIDTH - 12, 62, window=button_frame, anchor="e", width=(MINI_DEVICE_BUTTON_WIDTH * 3) + (MINI_DEVICE_BUTTON_GAP * 2), height=MINI_DEVICE_BUTTON_HEIGHT)
 
         self.mic_btn = ctk.CTkLabel(button_frame, text="", image=self.mini_button_images["mic"], width=MINI_DEVICE_BUTTON_WIDTH, height=MINI_DEVICE_BUTTON_HEIGHT)
         self.mic_btn.bind("<Button-1>", lambda event: self.toggle_microphone_mute())
@@ -1174,35 +1600,35 @@ class AutoAudioApp(ctk.CTk):
         self.refresh_microphone_mute_ui()
 
     def draw_ask_mini_ui(self):
+        self.configure(fg_color=MINI_BG_FALLBACK)
         target = self.ask_target or "headset"
         program_name = self.ask_program.get("name", "Program") if self.ask_program else "Program"
 
-        prompt = ctk.CTkFrame(self, fg_color="#171717", corner_radius=0)
-        prompt.pack(fill="both", expand=True, padx=12, pady=10)
-        prompt.bind("<ButtonPress-1>", self.start_move)
-        prompt.bind("<B1-Motion>", self.do_move)
+        mini_canvas = tk.Canvas(self, width=MINI_WIDTH, height=MINI_HEIGHT, highlightthickness=0, bd=0, bg=MINI_BG_FALLBACK)
+        mini_canvas.pack(fill="both", expand=True)
+        self.ask_mini_bg_photo = make_mini_background_image()
+        mini_canvas.create_image(0, 0, image=self.ask_mini_bg_photo, anchor="nw")
+        mini_canvas.bind("<ButtonPress-1>", self.start_move)
+        mini_canvas.bind("<B1-Motion>", self.do_move)
 
-        top_row = ctk.CTkFrame(prompt, fg_color="transparent")
-        top_row.pack(fill="both", expand=True)
+        self.ask_icon_photo = make_ui_icon_photo(target, 28)
+        mini_canvas.create_image(91, 47, image=self.ask_icon_photo)
+        mini_canvas.create_text(117, 32, text=f"Switch to {self.audio_label(target)}?", fill="white", font=("Segoe UI", 15, "bold"), anchor="w")
+        self.ask_label_canvas = mini_canvas
+        self.ask_label_item = mini_canvas.create_text(117, 62, text=program_name, fill="#B8B8B8", font=("Segoe UI", 11), anchor="w")
 
-        icon = self.icons["headset"] if target == "headset" else self.icons["speaker"]
-        ctk.CTkLabel(top_row, text="", image=icon, width=34).pack(side="left")
-
-        text_box = ctk.CTkFrame(top_row, fg_color="transparent")
-        text_box.pack(side="left", fill="x", expand=True, padx=10)
-        ctk.CTkLabel(text_box, text=f"Switch to {self.audio_label(target)}?", font=("Segoe UI", 15, "bold"), text_color="white", anchor="w").pack(fill="x")
-        self.ask_label = ctk.CTkLabel(text_box, text=program_name, font=("Segoe UI", 11), text_color="#B8B8B8", anchor="w")
-        self.ask_label.pack(fill="x")
-
-        button_row = ctk.CTkFrame(top_row, fg_color="transparent")
-        button_row.pack(side="right")
-        ctk.CTkButton(button_row, text="Yes", width=72, height=42, fg_color=ACTIVE_COLOR, hover_color="#1D4ED8", command=lambda: self.accept_ask_prompt(target)).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(button_row, text="No", width=72, height=42, fg_color="#444444", hover_color="#555555", command=self.dismiss_ask_prompt).pack(side="left")
+        self.ask_yes_button_photo = make_ask_button_photo("Yes", ACTIVE_COLOR, text_color=(0, 0, 0, 255), bold=True)
+        self.ask_no_button_photo = make_ask_button_photo("No", "#444444")
+        yes_button = mini_canvas.create_image(355, 49, image=self.ask_yes_button_photo)
+        no_button = mini_canvas.create_image(433, 49, image=self.ask_no_button_photo)
+        mini_canvas.tag_bind(yes_button, "<Button-1>", lambda event: self.accept_ask_prompt(target))
+        mini_canvas.tag_bind(no_button, "<Button-1>", lambda event: self.dismiss_ask_prompt(immediate=True))
 
     def draw_settings_ui(self):
         self.configure(fg_color=SETTINGS_GRADIENT_END)
         self.install_settings_background()
         self.audio_device_names = self.get_output_device_names()
+        self.sync_audio_config_with_devices(save_changes=True)
         device_options = self.build_device_options()
         self.microphone_device_names = self.get_input_device_names()
         microphone_options = self.build_microphone_options()
@@ -1225,8 +1651,48 @@ class AutoAudioApp(ctk.CTk):
         bottom = ctk.CTkFrame(self, fg_color="transparent")
         bottom.pack(side="bottom", fill="x", padx=0, pady=(0, 0))
         self.startup_var = ctk.BooleanVar(value=bool(self.config_data.get("start_with_windows", False)))
-        ctk.CTkCheckBox(bottom, text="Run on Start up", variable=self.startup_var, font=("Segoe UI", 14), fg_color=ACTIVE_COLOR, hover_color="#1D4ED8").pack(anchor="w", padx=8, pady=(3, 7))
-        ctk.CTkButton(bottom, text="Save", height=39, fg_color=ACTIVE_COLOR, hover_color="#1D4ED8", corner_radius=8, command=self.save_and_close).pack(fill="x", padx=8, pady=(0, 8))
+        bottom_options = ctk.CTkFrame(bottom, fg_color="transparent")
+        bottom_options.pack(fill="x", padx=8, pady=(3, 7))
+        ctk.CTkCheckBox(
+            bottom_options,
+            text="Run on Start up",
+            variable=self.startup_var,
+            font=("Segoe UI", 14),
+            fg_color=ACTIVE_COLOR,
+            hover_color=ACTIVE_HOVER_COLOR,
+        ).pack(side="left", anchor="w")
+
+        timeout_options = [self.format_ask_timeout_seconds(seconds) for seconds in ASK_TIMEOUT_OPTION_SECONDS]
+        self.ask_timeout_var = ctk.StringVar(value=self.format_ask_timeout_seconds())
+        ask_timeout_frame = ctk.CTkFrame(bottom_options, fg_color="transparent")
+        ask_timeout_frame.pack(side="right")
+        ctk.CTkLabel(
+            ask_timeout_frame,
+            text="Ask duration",
+            font=("Segoe UI", 13),
+            text_color="#B8B8B8",
+        ).pack(side="left", padx=(0, 8))
+        self.ask_timeout_combo = ctk.CTkComboBox(
+            ask_timeout_frame,
+            values=timeout_options,
+            variable=self.ask_timeout_var,
+            width=96,
+            height=30,
+            fg_color=CONTROL_BG,
+            border_color=FIELD_BORDER,
+            button_color=DEVICE_INACTIVE_COLOR,
+            button_hover_color=CONTROL_HOVER,
+            dropdown_fg_color=SURFACE_BG,
+            dropdown_hover_color=CONTROL_HOVER,
+            text_color="white",
+            dropdown_text_color="white",
+            font=("Segoe UI", 13),
+            dropdown_font=("Segoe UI", 13),
+        )
+        self.ask_timeout_combo.pack(side="left")
+        self.ask_timeout_combo.bind("<FocusOut>", lambda event: self.ask_timeout_var.set(self.format_ask_timeout_seconds(self.ask_timeout_var.get())))
+        self.ask_timeout_combo.bind("<Return>", lambda event: self.ask_timeout_var.set(self.format_ask_timeout_seconds(self.ask_timeout_var.get())))
+        ctk.CTkButton(bottom, text="Save", height=39, fg_color=ACTIVE_COLOR, hover_color=ACTIVE_HOVER_COLOR, text_color="black", corner_radius=8, command=self.save_and_close).pack(fill="x", padx=8, pady=(0, 8))
 
         program_panel = ctk.CTkFrame(self, fg_color=SETTINGS_PANEL_BG, bg_color=SETTINGS_GRADIENT_END, corner_radius=8, border_width=0)
         program_panel.pack(fill="both", expand=True, padx=8, pady=(0, 8))
@@ -1238,10 +1704,6 @@ class AutoAudioApp(ctk.CTk):
 
     def build_device_options(self):
         options = [name for name in self.audio_device_names if name]
-        for key in ("speaker_name", "headset_name"):
-            name = self.config_data.get(key)
-            if name and name not in options:
-                options.insert(0, name)
         return options or ["No audio device found"]
 
     def build_microphone_options(self):
@@ -1282,7 +1744,7 @@ class AutoAudioApp(ctk.CTk):
             tearoff=0,
             background=DEVICE_ACTIVE_COLOR if is_active else DEVICE_INACTIVE_COLOR,
             foreground="white",
-            activebackground="#1D4ED8",
+            activebackground=ACTIVE_HOVER_COLOR,
             activeforeground="white",
         )
         for device_name in device_options:
@@ -1496,9 +1958,11 @@ class AutoAudioApp(ctk.CTk):
                 )
                 name_canvas.pack(fill="both", expand=True)
 
+                headset_active = program.get("target_audio") == "headset"
+                speaker_active = program.get("target_audio") == "speaker"
                 ctk.CTkButton(item, text="", image=self.icons["trash"], width=38, height=39, fg_color="#991B1B", hover_color="#B91C1C", corner_radius=4, command=lambda p=program, k=key: self.remove_program(k, p)).pack(side="right", padx=(3, 6))
-                ctk.CTkButton(item, text="", image=self.icons["headset"], width=38, height=39, fg_color=self.target_color(program, "headset"), hover_color="#2563EB", corner_radius=4, command=lambda p=program, k=key: self.set_program_target(k, p, "headset")).pack(side="right", padx=2)
-                ctk.CTkButton(item, text="", image=self.icons["speaker"], width=38, height=39, fg_color=self.target_color(program, "speaker"), hover_color="#2563EB", corner_radius=4, command=lambda p=program, k=key: self.set_program_target(k, p, "speaker")).pack(side="right", padx=2)
+                ctk.CTkButton(item, text="", image=self.icons["headset_b" if headset_active else "headset"], width=38, height=39, fg_color=self.target_color(program, "headset"), hover_color=ACTIVE_HOVER_COLOR, corner_radius=4, command=lambda p=program, k=key: self.set_program_target(k, p, "headset")).pack(side="right", padx=2)
+                ctk.CTkButton(item, text="", image=self.icons["speaker_b" if speaker_active else "speaker"], width=38, height=39, fg_color=self.target_color(program, "speaker"), hover_color=ACTIVE_HOVER_COLOR, corner_radius=4, command=lambda p=program, k=key: self.set_program_target(k, p, "speaker")).pack(side="right", padx=2)
                 ctk.CTkButton(item, text="", image=self.icons["edit"], width=39, height=39, fg_color=CONTROL_BG, hover_color=CONTROL_HOVER, corner_radius=4, command=lambda p=program, k=key: self.edit_program_name(k, p)).pack(side="right", padx=2)
 
         ctk.CTkButton(section, text="+  Add Program", height=39, fg_color=CONTROL_BG, hover_color=CONTROL_HOVER, corner_radius=13, font=("Segoe UI", 14), command=lambda: self.open_add_program_menu(key)).pack(fill="x", padx=13, pady=(0, 6))
@@ -1691,11 +2155,7 @@ class AutoAudioApp(ctk.CTk):
         self.current_detected_icon = display_icon
         if self.ask_active or self.notification_active:
             return
-        if hasattr(self, "mini_name_canvas") and self.mini_name_canvas.winfo_exists():
-            display_name = name or "No Program Detected"
-            self.set_marquee_text(self.mini_name_canvas, display_name)
-        if hasattr(self, "mini_icon_label") and self.mini_icon_label.winfo_exists():
-            self.mini_icon_label.configure(image=display_icon, text="")
+        self.update_mini_detect_canvas(name, display_icon)
 
     def show_audio_change_notification(self, target, program_name=None, icon=None, animate=True):
         if self.notification_after_id:
@@ -1717,11 +2177,8 @@ class AutoAudioApp(ctk.CTk):
             self.geometry(f"{width}x{height}+{x}+{current_y}")
         self.update_mini_buttons_ui(target)
 
-        if hasattr(self, "mini_icon_label") and self.mini_icon_label.winfo_exists():
-            fallback_icon = self.icons.get("no_app") if program_name == "No Program Detected" else self.icons["headset"] if target == "headset" else self.icons["speaker"]
-            self.mini_icon_label.configure(image=icon or fallback_icon, text="")
-        if hasattr(self, "mini_name_canvas") and self.mini_name_canvas.winfo_exists():
-            self.set_marquee_text(self.mini_name_canvas, "Audio output changed")
+        fallback_icon = self.icons.get("no_app") if program_name == "No Program Detected" else self.icons["headset"] if target == "headset" else self.icons["speaker"]
+        self.update_mini_detect_canvas("Audio output changed", icon or fallback_icon)
         if animate and not was_visible:
             self.animate_mini_in()
         self.notification_after_id = self.after(NOTIFICATION_SECONDS * 1000, self.finish_audio_change_notification)
@@ -1745,8 +2202,11 @@ class AutoAudioApp(ctk.CTk):
         self.update_mini_buttons_ui(mode)
 
     def set_audio(self, mode):
+        self.audio_device_names = self.get_output_device_names()
+        self.sync_audio_config_with_devices(save_changes=True)
         target = self.config_data["headset_name"] if mode == "headset" else self.config_data["speaker_name"]
-        if not target or target == "No audio device found":
+        if not target or target == "No audio device found" or target not in self.audio_device_names:
+            print(f"audio switch failed: no valid {mode} output device selected")
             return False
 
         if self.set_audio_with_pycaw(target):
@@ -1986,20 +2446,39 @@ class AutoAudioApp(ctk.CTk):
                     continue
                 name = getattr(device, "FriendlyName", None) or getattr(device, "friendly_name", None)
                 if name == target:
-                    AudioUtilities.SetDefaultDevice(device.id, roles=[ERole.eMultimedia, ERole.eConsole])
+                    AudioUtilities.SetDefaultDevice(device.id, roles=[ERole.eMultimedia, ERole.eConsole, ERole.eCommunications])
                     return True
         except Exception as exc:
             print(f"pycaw audio switch failed: {exc}")
         return False
 
     def set_audio_with_nircmd(self, target):
-        nircmd_path = os.path.join(RESOURCE_DIR, "nircmd.exe")
+        nircmd_path = next(
+            (
+                path
+                for path in (
+                    os.path.join(APP_DIR, "nircmd.exe"),
+                    os.path.join(RESOURCE_DIR, "nircmd.exe"),
+                    os.path.join(RESOURCE_DIR, "_internal", "nircmd.exe"),
+                )
+                if os.path.exists(path)
+            ),
+            "",
+        )
         if not os.path.exists(nircmd_path):
             return False
         try:
+            results = []
             for role in ("0", "1", "2"):
-                subprocess.run([nircmd_path, "setdefaultsounddevice", target, role], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return True
+                completed = subprocess.run(
+                    [nircmd_path, "setdefaultsounddevice", target, role],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+                results.append(completed.returncode)
+            return all(code == 0 for code in results)
         except Exception as exc:
             print(f"nircmd audio switch failed: {exc}")
             return False
@@ -2007,9 +2486,13 @@ class AutoAudioApp(ctk.CTk):
     def save_settings(self):
         self.remember_settings_geometry()
         if hasattr(self, "sp_var"):
-            self.config_data["speaker_name"] = self.sp_var.get()
+            speaker_name = self.sp_var.get()
+            if speaker_name in self.audio_device_names:
+                self.config_data["speaker_name"] = speaker_name
         if hasattr(self, "hs_var"):
-            self.config_data["headset_name"] = self.hs_var.get()
+            headset_name = self.hs_var.get()
+            if headset_name in self.audio_device_names:
+                self.config_data["headset_name"] = headset_name
         if hasattr(self, "mic_var"):
             self.config_data["microphone_name"] = self.mic_var.get()
         if hasattr(self, "mic_hotkey_var"):
@@ -2019,6 +2502,10 @@ class AutoAudioApp(ctk.CTk):
         if hasattr(self, "startup_var"):
             self.config_data["start_with_windows"] = bool(self.startup_var.get())
             self.set_startup_enabled(self.config_data["start_with_windows"])
+        if hasattr(self, "ask_timeout_var"):
+            ask_timeout = self.parse_ask_timeout_seconds(self.ask_timeout_var.get())
+            self.config_data["ask_timeout_seconds"] = ask_timeout
+            self.ask_timeout_var.set(self.format_ask_timeout_seconds(ask_timeout))
         self.save_config()
 
     def save_and_close(self):
@@ -2179,7 +2666,8 @@ class AutoAudioApp(ctk.CTk):
                 is_active = mode == sort_mode
                 button.configure(
                     fg_color=ACTIVE_COLOR if is_active else "#333333",
-                    hover_color="#1D4ED8" if is_active else CONTROL_HOVER,
+                    hover_color=ACTIVE_HOVER_COLOR if is_active else CONTROL_HOVER,
+                    text_color="black" if is_active else "white",
                 )
 
         if not processes:
@@ -2415,7 +2903,7 @@ class AutoAudioApp(ctk.CTk):
 
                 if self.manual_override:
                     pass
-                elif list_key == "ask_list":
+                elif list_key == "ask_list" and self.last_state != target:
                     self.ask_restore_prompt_key = None
                     self.after(0, lambda p=program: self.show_ask_prompt(p))
                 elif self.last_state != target:
@@ -2433,7 +2921,7 @@ class AutoAudioApp(ctk.CTk):
                     time.sleep(CHECK_INTERVAL_SECONDS)
                     continue
 
-                should_restore_speaker = self.last_state == "headset" and (not self.manual_override or self.manual_override_during_detection)
+                should_restore_speaker = self.last_state == "headset" and not self.ask_restore_program and (not self.manual_override or self.manual_override_during_detection)
                 if should_restore_speaker:
                     if self.set_audio("speaker"):
                         self.last_state = "speaker"
@@ -2516,6 +3004,8 @@ class AutoAudioApp(ctk.CTk):
     def show_ask_prompt(self, program, target_override=None, prompt_key_override=None):
         target = target_override or program.get("target_audio", "headset")
         prompt_key = prompt_key_override or self.program_prompt_key(program, target)
+        if self.ask_active or self.notification_active:
+            return
         if self.pending_prompt_key == prompt_key:
             return
 
@@ -2529,14 +3019,14 @@ class AutoAudioApp(ctk.CTk):
         self.switch_mode("mini")
         self.animate_mini_in()
 
-        self.ask_remaining = ASK_TIMEOUT_SECONDS
+        self.ask_remaining = self.get_ask_timeout_seconds()
         self.tick_ask_prompt(program, target)
 
     def tick_ask_prompt(self, program, target):
         if not self.ask_active:
             return
-        if hasattr(self, "ask_label") and self.ask_label.winfo_exists():
-            self.ask_label.configure(text=f"{program.get('name', 'Program')}  |  {self.ask_remaining}s")
+        if hasattr(self, "ask_label_canvas") and self.ask_label_canvas.winfo_exists():
+            self.ask_label_canvas.itemconfigure(self.ask_label_item, text=f"{program.get('name', 'Program')}  |  {self.ask_remaining}s")
         if self.ask_remaining <= 0:
             self.dismiss_ask_prompt()
             return
@@ -2545,9 +3035,9 @@ class AutoAudioApp(ctk.CTk):
 
     def accept_ask_prompt(self, target):
         accepted_program = self.ask_program
+        self.dismiss_ask_prompt(hide=True, immediate=True, mark_restore_dismissed=False)
         changed = self.set_audio(target)
         if not changed:
-            self.dismiss_ask_prompt()
             return
         self.last_state = target
         self.manual_override = False
@@ -2566,11 +3056,10 @@ class AutoAudioApp(ctk.CTk):
         else:
             self.ask_restore_program = accepted_program
             self.ask_restore_prompt_key = None
-        self.dismiss_ask_prompt(hide=False)
         self.show_audio_change_notification(target, program_name, icon, animate=False)
 
-    def dismiss_ask_prompt(self, hide=True):
-        dismissed_restore_prompt = self.ask_target == "speaker" and self.ask_restore_program is not None
+    def dismiss_ask_prompt(self, hide=True, immediate=False, mark_restore_dismissed=True):
+        dismissed_restore_prompt = mark_restore_dismissed and self.ask_target == "speaker" and self.ask_restore_program is not None
         if self.ask_countdown_after_id:
             try:
                 self.after_cancel(self.ask_countdown_after_id)
@@ -2586,7 +3075,12 @@ class AutoAudioApp(ctk.CTk):
         self.ask_program = None
         self.ask_target = None
         if hide and self.is_mini and self.winfo_viewable() and not self.mini_pinned_by_user:
-            self.animate_mini_out()
+            if immediate:
+                self.cancel_mini_animation()
+                self.withdraw()
+                self.update_idletasks()
+            else:
+                self.animate_mini_out()
 
     def start_tray(self):
         if self.tray:
@@ -2641,3 +3135,4 @@ if __name__ == "__main__":
     print("Use the tray icon, or run with --show / --settings for visible test mode.")
     app = AutoAudioApp(start_mode=start_mode)
     app.mainloop()
+

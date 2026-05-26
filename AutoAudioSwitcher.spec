@@ -7,6 +7,7 @@ block_cipher = None
 
 datas = collect_data_files("customtkinter")
 datas += [
+    ("assets/app_icon.png", "assets"),
     ("assets/icons", "assets/icons"),
     ("config.json", "."),
     ("nircmd.exe", "."),
@@ -20,6 +21,9 @@ a = Analysis(
     hiddenimports=[
         "pycaw",
         "pycaw.pycaw",
+        "pycaw.constants",
+        "comtypes",
+        "comtypes.client",
         "pystray",
         "PIL",
         "win32gui",

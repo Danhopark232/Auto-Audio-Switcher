@@ -6,14 +6,8 @@
             "name": "DCS.exe",
             "match_type": "process_name",
             "value": "DCS.exe",
-            "path": "F:/Games/DCS World/bin/DCS.exe",
-            "target_audio": "headset"
-        },
-        {
-            "name": "Aviassembly.exe",
-            "match_type": "process_name",
-            "value": "Aviassembly.exe",
-            "path": "F:\\SteamLibrary\\steamapps\\common\\Aviassembly\\Aviassembly.exe",
+            "path": "F:\\Games\\DCS World\\bin\\DCS.exe",
+            "icon_path": "",
             "target_audio": "headset"
         }
     ],
@@ -23,8 +17,46 @@
             "match_type": "process_name",
             "value": "EscapeFromTarkov.exe",
             "path": "E:\\Games\\BSG\\EscapeFromTarkov.exe",
+            "icon_path": "",
+            "target_audio": "headset"
+        },
+        {
+            "name": "MSFS2024",
+            "match_type": "process_name",
+            "value": "FlightSimulator2024.exe",
+            "path": "F:\\Game\\Microsoft Flight Simulator 2024\\Content\\FlightSimulator2024.exe",
+            "icon_path": "D:/programs/에셋/39d5eaec-5f96-4aeb-ae65-5b7132b08015.jpg",
+            "target_audio": "headset"
+        },
+        {
+            "name": "eurotrucks2.exe",
+            "match_type": "process_name",
+            "value": "eurotrucks2.exe",
+            "path": "D:\\SteamLibrary\\steamapps\\common\\Euro Truck Simulator 2\\bin\\win_x64\\eurotrucks2.exe",
+            "icon_path": "",
+            "target_audio": "headset"
+        },
+        {
+            "name": "Aviassembly",
+            "match_type": "process_name",
+            "value": "Aviassembly.exe",
+            "path": "F:\\SteamLibrary\\steamapps\\common\\Aviassembly\\Aviassembly.exe",
+            "icon_path": "",
+            "target_audio": "headset"
+        },
+        {
+            "name": "Squad",
+            "match_type": "process_name",
+            "value": "SquadGame-Win64-Shipping.exe",
+            "path": "E:\\SteamLibrary\\steamapps\\common\\Squad\\SquadGame\\Binaries\\Win64\\SquadGame-Win64-Shipping.exe",
+            "icon_path": "",
             "target_audio": "headset"
         }
     ],
-    "start_with_windows": true
+    "start_with_windows": false,
+    "settings_geometry": "680x1162+1107+156",
+    "microphone_name": "Default Microphone",
+    "microphone_mute_hotkey": "F24",
+    "ask_timeout_seconds": 30,
+    "onboarding_completed": false
 }
