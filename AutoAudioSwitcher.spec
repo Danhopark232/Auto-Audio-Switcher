@@ -8,6 +8,7 @@ block_cipher = None
 datas = collect_data_files("customtkinter")
 datas += [
     ("assets/app_icon.png", "assets"),
+    ("assets/app_icon.ico", "assets"),
     ("assets/icons", "assets/icons"),
     ("config.json", "."),
     ("nircmd.exe", "."),

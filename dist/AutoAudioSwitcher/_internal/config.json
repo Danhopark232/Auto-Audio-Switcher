@@ -1,6 +1,6 @@
 {
-    "headset_name": "Headset(Arctis 7+)",
-    "speaker_name": "Speakers(2- Pebble V3)",
+    "headset_name": "헤드폰(4- Arctis 7+)",
+    "speaker_name": "스피커(Pebble V3)",
     "auto_list": [
         {
             "name": "DCS.exe",
@@ -53,10 +53,10 @@
             "target_audio": "headset"
         }
     ],
-    "start_with_windows": false,
-    "settings_geometry": "680x1162+1107+156",
+    "start_with_windows": true,
+    "settings_geometry": "1560x640+948+370",
     "microphone_name": "Default Microphone",
-    "microphone_mute_hotkey": "F24",
+    "microphone_mute_hotkey": "F13",
     "ask_timeout_seconds": 30,
-    "onboarding_completed": false
+    "onboarding_completed": true
 }

@@ -59,16 +59,13 @@
    'switcher\\UI버젼\\Auto-Audio-Switcher\\build\\AutoAudioSwitcher\\localpycs\\pyimod04_pywin32.pyc',
    'PYMODULE'),
   ('pyiboot01_bootstrap',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\PyInstaller\\loader\\pyiboot01_bootstrap.py',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\PyInstaller\\loader\\pyiboot01_bootstrap.py',
    'PYSOURCE'),
   ('pyi_rth_inspect',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth_inspect.py',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth_inspect.py',
    'PYSOURCE'),
   ('pyi_rth__tkinter',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth__tkinter.py',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth__tkinter.py',
    'PYSOURCE'),
   ('UIaudio',
    'D:\\programs\\auto audio switcher\\UI버젼\\Auto-Audio-Switcher\\UIaudio.py',
@@ -76,9 +73,8 @@
  [],
  False,
  False,
- 1779776835,
+ 1781868811,
  [('runw.exe',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\PyInstaller\\bootloader\\Windows-64bit-intel\\runw.exe',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\PyInstaller\\bootloader\\Windows-64bit-intel\\runw.exe',
    'EXECUTABLE')],
  'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\python310.dll')

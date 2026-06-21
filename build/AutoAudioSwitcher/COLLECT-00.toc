@@ -3,40 +3,31 @@
    'switcher\\UI버젼\\Auto-Audio-Switcher\\build\\AutoAudioSwitcher\\AutoAudioSwitcher.exe',
    'EXECUTABLE'),
   ('PIL\\_avif.cp310-win_amd64.pyd',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\PIL\\_avif.cp310-win_amd64.pyd',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\PIL\\_avif.cp310-win_amd64.pyd',
    'EXTENSION'),
   ('PIL\\_imaging.cp310-win_amd64.pyd',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\PIL\\_imaging.cp310-win_amd64.pyd',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\PIL\\_imaging.cp310-win_amd64.pyd',
    'EXTENSION'),
   ('PIL\\_imagingcms.cp310-win_amd64.pyd',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\PIL\\_imagingcms.cp310-win_amd64.pyd',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\PIL\\_imagingcms.cp310-win_amd64.pyd',
    'EXTENSION'),
   ('PIL\\_imagingft.cp310-win_amd64.pyd',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\PIL\\_imagingft.cp310-win_amd64.pyd',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\PIL\\_imagingft.cp310-win_amd64.pyd',
    'EXTENSION'),
   ('PIL\\_imagingmath.cp310-win_amd64.pyd',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\PIL\\_imagingmath.cp310-win_amd64.pyd',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\PIL\\_imagingmath.cp310-win_amd64.pyd',
    'EXTENSION'),
   ('PIL\\_imagingtk.cp310-win_amd64.pyd',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\PIL\\_imagingtk.cp310-win_amd64.pyd',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\PIL\\_imagingtk.cp310-win_amd64.pyd',
    'EXTENSION'),
   ('PIL\\_webp.cp310-win_amd64.pyd',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\PIL\\_webp.cp310-win_amd64.pyd',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\PIL\\_webp.cp310-win_amd64.pyd',
    'EXTENSION'),
   ('Pythonwin\\mfc140u.dll',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\Pythonwin\\mfc140u.dll',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\Pythonwin\\mfc140u.dll',
    'BINARY'),
   ('Pythonwin\\win32ui.pyd',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\Pythonwin\\win32ui.pyd',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\Pythonwin\\win32ui.pyd',
    'EXTENSION'),
   ('VCRUNTIME140.dll',
    'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\VCRUNTIME140.dll',
@@ -2825,6 +2816,10 @@
   ('_tkinter.pyd',
    'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\DLLs\\_tkinter.pyd',
    'EXTENSION'),
+  ('assets\\app_icon.ico',
+   'D:\\programs\\auto audio '
+   'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\app_icon.ico',
+   'DATA'),
   ('assets\\app_icon.png',
    'D:\\programs\\auto audio '
    'switcher\\UI버젼\\Auto-Audio-Switcher\\assets\\app_icon.png',
@@ -2945,40 +2940,31 @@
    'D:\\programs\\auto audio switcher\\UI버젼\\Auto-Audio-Switcher\\config.json',
    'DATA'),
   ('customtkinter\\assets\\.DS_Store',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\customtkinter\\assets\\.DS_Store',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\customtkinter\\assets\\.DS_Store',
    'DATA'),
   ('customtkinter\\assets\\fonts\\CustomTkinter_shapes_font.otf',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\customtkinter\\assets\\fonts\\CustomTkinter_shapes_font.otf',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\customtkinter\\assets\\fonts\\CustomTkinter_shapes_font.otf',
    'DATA'),
   ('customtkinter\\assets\\fonts\\Roboto\\Roboto-Medium.ttf',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\customtkinter\\assets\\fonts\\Roboto\\Roboto-Medium.ttf',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\customtkinter\\assets\\fonts\\Roboto\\Roboto-Medium.ttf',
    'DATA'),
   ('customtkinter\\assets\\fonts\\Roboto\\Roboto-Regular.ttf',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\customtkinter\\assets\\fonts\\Roboto\\Roboto-Regular.ttf',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\customtkinter\\assets\\fonts\\Roboto\\Roboto-Regular.ttf',
    'DATA'),
   ('customtkinter\\assets\\icons\\.DS_Store',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\customtkinter\\assets\\icons\\.DS_Store',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\customtkinter\\assets\\icons\\.DS_Store',
    'DATA'),
   ('customtkinter\\assets\\icons\\CustomTkinter_icon_Windows.ico',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\customtkinter\\assets\\icons\\CustomTkinter_icon_Windows.ico',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\customtkinter\\assets\\icons\\CustomTkinter_icon_Windows.ico',
    'DATA'),
   ('customtkinter\\assets\\themes\\blue.json',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\customtkinter\\assets\\themes\\blue.json',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\customtkinter\\assets\\themes\\blue.json',
    'DATA'),
   ('customtkinter\\assets\\themes\\dark-blue.json',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\customtkinter\\assets\\themes\\dark-blue.json',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\customtkinter\\assets\\themes\\dark-blue.json',
    'DATA'),
   ('customtkinter\\assets\\themes\\green.json',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\customtkinter\\assets\\themes\\green.json',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\customtkinter\\assets\\themes\\green.json',
    'DATA'),
   ('libcrypto-1_1.dll',
    'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\DLLs\\libcrypto-1_1.dll',
@@ -2993,8 +2979,7 @@
    'D:\\programs\\auto audio switcher\\UI버젼\\Auto-Audio-Switcher\\nircmd.exe',
    'BINARY'),
   ('psutil\\_psutil_windows.pyd',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\psutil\\_psutil_windows.pyd',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\psutil\\_psutil_windows.pyd',
    'EXTENSION'),
   ('pyexpat.pyd',
    'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\DLLs\\pyexpat.pyd',
@@ -3006,8 +2991,7 @@
    'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\python310.dll',
    'BINARY'),
   ('pywin32_system32\\pywintypes310.dll',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\pywin32_system32\\pywintypes310.dll',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\pywin32_system32\\pywintypes310.dll',
    'BINARY'),
   ('select.pyd',
    'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\DLLs\\select.pyd',
@@ -3036,11 +3020,15 @@
   ('unicodedata.pyd',
    'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\DLLs\\unicodedata.pyd',
    'EXTENSION'),
+  ('win32\\win32api.pyd',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\win32\\win32api.pyd',
+   'EXTENSION'),
+  ('win32\\win32evtlog.pyd',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\win32\\win32evtlog.pyd',
+   'EXTENSION'),
   ('win32\\win32gui.pyd',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\win32\\win32gui.pyd',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\win32\\win32gui.pyd',
    'EXTENSION'),
   ('win32\\win32process.pyd',
-   'D:\\programs\\auto audio '
-   'switcher\\UI버젼\\Auto-Audio-Switcher\\.venv\\lib\\site-packages\\win32\\win32process.pyd',
+   'C:\\Users\\lambo\\AppData\\Local\\Programs\\Python\\Python310\\lib\\site-packages\\win32\\win32process.pyd',
    'EXTENSION')],)
