@@ -5,6 +5,8 @@ output between a speaker device and a headset device based on the programs you
 run. It is designed for game-focused workflows where some apps should use a
 headset, while the desktop can return to speakers afterward.
 
+![Mini view preview](assets/readme/mini-view.png)
+
 ## Current Version
 
 The current UI version focuses on faster audio switching, a compact mini view,
@@ -30,6 +32,31 @@ and clearer per-program control.
 - **Startup option**: the app can be configured to run when Windows starts.
 - **Runtime logs**: logs are saved under `logs/auto_audio_switcher.log` to help
   diagnose intermittent detection, prompt, mini-view, and audio-switch issues.
+
+## Feature Highlights
+
+### Settings And Program Rules
+
+Configure speaker and headset output devices, choose ask duration, enable
+startup behavior, and manage every program rule from a single program list.
+
+![Settings and program list](assets/readme/settings-program-list.png)
+
+### Ask Or Auto Per Program
+
+Each detected program can use **Ask** or **Auto** behavior. Ask mode shows a
+confirmation prompt before changing the output. Auto mode switches immediately
+when the matching program is detected.
+
+![Ask before change prompt](assets/readme/ask-prompt.png)
+
+### Mini View
+
+The mini view appears near the bottom of the screen, shows the current audio
+state, and provides quick Speaker / Headset controls without opening the full
+settings window.
+
+![Mini view controls](assets/readme/mini-view.png)
 
 ## Recent UI Behavior
 
