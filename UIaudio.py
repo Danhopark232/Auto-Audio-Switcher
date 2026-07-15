@@ -19,7 +19,6 @@ import psutil
 import pystray
 import win32con
 import win32gui
-import win32process
 import win32ui
 from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageTk
 
@@ -33,21 +32,21 @@ APP_ICON_FILE = os.path.join(RESOURCE_DIR, "assets", "app_icon.png")
 APP_ICON_ICO_FILE = os.path.join(RESOURCE_DIR, "assets", "app_icon.ico")
 ICON_DIR = os.path.join(RESOURCE_DIR, "assets", "icons")
 WINDOWS_APP_ID = "AutoAudioSwitcher.AutoAudioSwitcher"
+OFFLINE_DEVICE_SUFFIX = " (Offline)"
 SINGLE_INSTANCE_MUTEX_NAME = "Local\\AutoAudioSwitcher.SingleInstance"
 ERROR_ALREADY_EXISTS = 183
 CHECK_INTERVAL_SECONDS = 1
 CURRENT_AUDIO_SYNC_INTERVAL_SECONDS = 5
+DEVICE_CACHE_REFRESH_INTERVAL_SECONDS = 2
 PROGRAM_EXIT_GRACE_SECONDS = 1
 ASK_TIMEOUT_SECONDS = 25
 ASK_TIMEOUT_OPTION_SECONDS = list(range(5, 125, 5))
 MINI_NOTIFICATION_SECONDS = 3
 MINI_NOTIFICATION_OPTION_SECONDS = [1, 2, 3, 4, 5, 10, 15, 20, 25, 30, 45, 60]
-NOTIFICATION_SECONDS = 4
-AUTO_CHANGE_NOTIFICATION_SECONDS = 5
 STARTUP_MINI_POPUP_SECONDS = 3
 SHOW_STARTUP_ONBOARDING_EVERY_RUN = False
-AUDIO_SWITCH_VERIFY_TIMEOUT_SECONDS = 0.6
-AUDIO_SWITCH_VERIFY_INTERVAL_SECONDS = 0.1
+AUDIO_SWITCH_VERIFY_TIMEOUT_SECONDS = 0.25
+AUDIO_SWITCH_VERIFY_INTERVAL_SECONDS = 0.03
 MINI_WIDTH = 546
 MINI_HEIGHT = 94
 MINI_ANIMATION_STEPS = 18
@@ -62,9 +61,6 @@ SETTINGS_LEFT_WIDTH = 300
 SETTINGS_RIGHT_WIDTH = 800
 SETTINGS_DEVICE_WIDTH = 272
 SETTINGS_HOTKEY_HEIGHT = 37
-SETTINGS_HOTKEY_LABEL_WIDTH = 60
-SETTINGS_HOTKEY_WIDTH = 58
-SETTINGS_HOTKEY_DETECT_WIDTH = 76
 PROGRAM_ICON_SIZE = 32
 MINI_DETECTED_ICON_SIZE = 52
 MINI_DETECTED_ICON_SOURCE_SIZE = 128
@@ -78,7 +74,6 @@ ACTIVE_GRADIENT_START = "#2563E8"
 ACTIVE_GRADIENT_END = "#153782"
 MINI_BUTTON_ACTIVE_GRADIENT_START = ACTIVE_GRADIENT_START
 MINI_BUTTON_ACTIVE_GRADIENT_END = ACTIVE_GRADIENT_END
-MINI_BUTTON_INACTIVE_COLOR = "#20073F"
 INACTIVE_BUTTON_GRADIENT_START = (60, 60, 60, 102)
 INACTIVE_BUTTON_GRADIENT_END = (60, 60, 60, 102)
 INACTIVE_BUTTON_BORDER = (82, 82, 82, 77)
@@ -115,11 +110,8 @@ SETTINGS_PANEL_BG = "#181818"
 SETTINGS_PANEL_RADIUS = 8
 SETTINGS_ROW_BG = "#1C1C1C"
 SETTINGS_GRADIENT_END = SETTINGS_OUTER_BG
-SETTINGS_GRADIENT_START = SETTINGS_GRADIENT_END
 SETTINGS_DEVICE_ACTIVE_START = ACTIVE_GRADIENT_START
 SETTINGS_DEVICE_ACTIVE_END = ACTIVE_GRADIENT_END
-SETTINGS_SEPARATOR_COLOR = "#0C131F"
-CARD_BG = "#1A1A1A"
 CONTROL_BG = "#333333"
 CONTROL_HOVER = "#414141"
 FIELD_BG = "#303335"
@@ -137,14 +129,11 @@ DWMWA_WINDOW_CORNER_PREFERENCE = 33
 DWMWCP_ROUND = 2
 GA_ROOT = 2
 WH_KEYBOARD_LL = 13
-INPUT_KEYBOARD = 1
 WM_KEYDOWN = 0x0100
 WM_KEYUP = 0x0101
 WM_SYSKEYDOWN = 0x0104
 WM_SYSKEYUP = 0x0105
 LLKHF_INJECTED = 0x10
-KEYEVENTF_KEYUP = 0x0002
-MAPVK_VK_TO_VSC = 0
 VK_RETURN = 0x0D
 VK_ESCAPE = 0x1B
 HOTKEY_NONE_LABEL = "None"
@@ -157,7 +146,6 @@ HOTKEY_VK = {
 HHOOK = getattr(wintypes, "HHOOK", wintypes.HANDLE)
 HINSTANCE = getattr(wintypes, "HINSTANCE", wintypes.HANDLE)
 HMODULE = getattr(wintypes, "HMODULE", wintypes.HANDLE)
-ULONG_PTR = ctypes.c_ulonglong if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_ulong
 WPARAM = ctypes.c_size_t
 LPARAM = ctypes.c_ssize_t
 LRESULT = ctypes.c_ssize_t
@@ -171,50 +159,6 @@ class KBDLLHOOKSTRUCT(ctypes.Structure):
         ("flags", wintypes.DWORD),
         ("time", wintypes.DWORD),
         ("dwExtraInfo", ctypes.c_void_p),
-    ]
-
-
-class KEYBDINPUT(ctypes.Structure):
-    _fields_ = [
-        ("wVk", wintypes.WORD),
-        ("wScan", wintypes.WORD),
-        ("dwFlags", wintypes.DWORD),
-        ("time", wintypes.DWORD),
-        ("dwExtraInfo", ULONG_PTR),
-    ]
-
-
-class MOUSEINPUT(ctypes.Structure):
-    _fields_ = [
-        ("dx", wintypes.LONG),
-        ("dy", wintypes.LONG),
-        ("mouseData", wintypes.DWORD),
-        ("dwFlags", wintypes.DWORD),
-        ("time", wintypes.DWORD),
-        ("dwExtraInfo", ULONG_PTR),
-    ]
-
-
-class HARDWAREINPUT(ctypes.Structure):
-    _fields_ = [
-        ("uMsg", wintypes.DWORD),
-        ("wParamL", wintypes.WORD),
-        ("wParamH", wintypes.WORD),
-    ]
-
-
-class INPUT_UNION(ctypes.Union):
-    _fields_ = [
-        ("mi", MOUSEINPUT),
-        ("ki", KEYBDINPUT),
-        ("hi", HARDWAREINPUT),
-    ]
-
-
-class INPUT(ctypes.Structure):
-    _fields_ = [
-        ("type", wintypes.DWORD),
-        ("union", INPUT_UNION),
     ]
 
 
@@ -601,9 +545,14 @@ def make_mini_background_slice(width, height, x, y):
     return ImageTk.PhotoImage(image)
 
 
-def make_setting_device_header_image(kind, text, active, width=269, height=39, hover=False):
+def make_setting_device_header_image(kind, text, active, width=269, height=39, hover=False, disabled=False):
     image = Image.new("RGBA", (width, height), SETTINGS_PANEL_BG)
-    if active:
+    if disabled:
+        background = Image.new("RGBA", (width, height), (40, 40, 40, 210))
+        border = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        ImageDraw.Draw(border).rounded_rectangle((0, 0, width - 1, height - 1), radius=4, outline=(74, 74, 74, 100), width=1)
+        background.alpha_composite(border)
+    elif active:
         background = create_css_like_gradient(width, height, SETTINGS_DEVICE_ACTIVE_START, SETTINGS_DEVICE_ACTIVE_END)
     else:
         background = make_inactive_button_surface(width, height, radius=4, rounded_bottom=False, hover=hover)
@@ -616,6 +565,8 @@ def make_setting_device_header_image(kind, text, active, width=269, height=39, h
     image.alpha_composite(background)
 
     icon = load_icon_image(kind, black=False, inactive_gradient=not active, hover_gradient=hover)
+    if disabled:
+        icon.putalpha(icon.getchannel("A").point(lambda value: int(value * 0.35)))
     icon.thumbnail((24, 24), Image.LANCZOS)
 
     text_font = get_pil_text_font(18)
@@ -626,7 +577,7 @@ def make_setting_device_header_image(kind, text, active, width=269, height=39, h
     x = (width - content_width) // 2
     y = (height - icon.height) // 2
     image.alpha_composite(icon, (x, y))
-    text_fill = (255, 255, 255, 255)
+    text_fill = (255, 255, 255, 110) if disabled else (255, 255, 255, 255)
     draw.text((x + icon.width + 8, (height - (bbox[3] - bbox[1])) / 2 - 1), text, fill=text_fill, font=text_font)
     return ctk.CTkImage(light_image=image, dark_image=image, size=(width, height))
 
@@ -898,10 +849,16 @@ def make_settings_gradient_image(width, height):
     return ImageTk.PhotoImage(Image.new("RGBA", (max(1, width), max(1, height)), SETTINGS_GRADIENT_END))
 
 
-def make_mini_button_image(kind, active=False, hover=False):
+def make_mini_button_image(kind, active=False, hover=False, disabled=False):
     width = MINI_DEVICE_BUTTON_WIDTH
     height = MINI_DEVICE_BUTTON_HEIGHT
-    if active:
+    if disabled:
+        background = Image.new("RGBA", (width, height), (40, 40, 40, 210))
+        border = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        border_draw = ImageDraw.Draw(border)
+        border_draw.rounded_rectangle((0, 0, width - 1, height - 1), radius=4, outline=(74, 74, 74, 100), width=1)
+        background.alpha_composite(border)
+    elif active:
         background = create_css_like_gradient(width, height, MINI_BUTTON_ACTIVE_GRADIENT_START, MINI_BUTTON_ACTIVE_GRADIENT_END)
     else:
         background = make_inactive_button_surface(width, height, radius=4, hover=hover)
@@ -915,6 +872,9 @@ def make_mini_button_image(kind, active=False, hover=False):
         button.putalpha(mask)
 
     icon = load_icon_image(kind, black=False, inactive_gradient=not active, hover_gradient=hover)
+    if disabled:
+        alpha = icon.getchannel("A").point(lambda value: int(value * 0.35))
+        icon.putalpha(alpha)
     icon.thumbnail((28, 28), Image.LANCZOS)
     x = (width - icon.width) // 2
     y = (height - icon.height) // 2
@@ -1079,14 +1039,21 @@ class AutoAudioApp(ctk.CTk):
         self.ask_restore_program = None
         self.ask_restore_prompt_key = None
         self.recent_detected_program = None
+        self.recent_detected_list_key = None
         self.detected_missing_since = None
         self.notification_active = False
         self.current_audio_mode_cache = None
         self.last_audio_sync_time = 0
+        self.last_device_cache_refresh_time = 0
+        self.last_audio_switch_failure_reason = None
+        self.last_audio_switch_failure_target = None
+        self.offline_device_log_keys = set()
+        self.loop_guard_log_keys = set()
+        self.offline_tooltip = None
+        self.offline_tooltip_label = None
         self.detection_rules_cache_key = None
         self.detection_rules_cache = []
         self.onboarding_active = False
-        self.drag_data = None
         self.mini_animation_after_id = None
         self.mini_pinned_by_user = False
         self.keyboard_hook = None
@@ -1096,9 +1063,6 @@ class AutoAudioApp(ctk.CTk):
         self.output_switch_hotkey_down = False
         self.ask_keyboard_down_vk = None
         self.hotkey_capture_active = False
-        self.list_drop_targets = {}
-        self.program_list_scrolls = {}
-        self.program_row_widgets = {}
         self.exe_icon_cache = {}
         self.program_icon_preload_queue = []
         self.audio_device_ids = {}
@@ -1131,9 +1095,11 @@ class AutoAudioApp(ctk.CTk):
             "speaker_active": make_mini_button_image("speaker", active=True),
             "speaker_inactive": make_mini_button_image("speaker", active=False),
             "speaker_hover": make_mini_button_image("speaker", active=False, hover=True),
+            "speaker_disabled": make_mini_button_image("speaker", disabled=True),
             "headset_active": make_mini_button_image("headset", active=True),
             "headset_inactive": make_mini_button_image("headset", active=False),
             "headset_hover": make_mini_button_image("headset", active=False, hover=True),
+            "headset_disabled": make_mini_button_image("headset", disabled=True),
             "switching": make_audio_switching_button_image(),
         }
         self.current_detected_icon = self.icons["no_app"]
@@ -1194,15 +1160,19 @@ class AutoAudioApp(ctk.CTk):
     def show_audio_output_setup_popup(self):
         self.audio_device_names = self.get_output_device_names()
         device_options = self.build_device_options()
-        speaker_default = self.config_data.get("speaker_name") if self.config_data.get("speaker_name") in device_options else device_options[0]
-        headset_default = self.config_data.get("headset_name") if self.config_data.get("headset_name") in device_options else device_options[0]
+        speaker_default = self.device_option_for_name(self.config_data.get("speaker_name"), device_options)
+        headset_default = self.device_option_for_name(self.config_data.get("headset_name"), device_options)
+        if speaker_default not in device_options:
+            speaker_default = device_options[0]
+        if headset_default not in device_options:
+            headset_default = device_options[0]
 
         popup = ctk.CTkToplevel(self)
 
         def finish():
             if device_options and device_options[0] != "No audio device found":
-                self.config_data["speaker_name"] = speaker_var.get()
-                self.config_data["headset_name"] = headset_var.get()
+                self.config_data["speaker_name"] = self.device_name_from_option(speaker_var.get())
+                self.config_data["headset_name"] = self.device_name_from_option(headset_var.get())
                 self.save_config()
             try:
                 popup.grab_release()
@@ -1504,6 +1474,8 @@ class AutoAudioApp(ctk.CTk):
                     pass
 
     def set_ui_mode(self, mode):
+        if mode != "mini":
+            self.hide_offline_output_tooltip()
         if mode == "mini":
             self.is_mini = True
             self.minsize(MINI_WIDTH, MINI_HEIGHT)
@@ -1541,10 +1513,6 @@ class AutoAudioApp(ctk.CTk):
         x = max(left, right - MINI_WIDTH)
         y = max(top, bottom - height + y_offset)
         return MINI_WIDTH, height, x, y
-
-    def get_mini_hidden_x(self):
-        _, _, right, _ = self.get_work_area()
-        return right
 
     def get_mini_hidden_y(self):
         _, _, _, bottom = self.get_work_area()
@@ -1864,10 +1832,24 @@ class AutoAudioApp(ctk.CTk):
             with self.device_cache_lock:
                 self.audio_device_names = output_devices
                 self.audio_device_ids = output_ids
+            self.last_device_cache_refresh_time = time.monotonic()
             return output_devices, []
         except Exception:
             with self.device_cache_lock:
                 return list(getattr(self, "audio_device_names", [])), []
+
+    def refresh_audio_device_cache_if_stale(self, force=False):
+        now = time.monotonic()
+        if force or now - getattr(self, "last_device_cache_refresh_time", 0) >= DEVICE_CACHE_REFRESH_INTERVAL_SECONDS:
+            before_outputs = tuple(getattr(self, "audio_device_names", []))
+            self.refresh_audio_device_cache(include_input=False)
+            self.sync_audio_config_with_devices(save_changes=True)
+            changed = before_outputs != tuple(getattr(self, "audio_device_names", []))
+            if changed:
+                logging.info("audio device availability changed devices=%s", self.audio_device_names)
+                self.after(0, lambda state=self.last_state: self.update_mini_buttons_ui(state))
+            return changed
+        return False
 
     def get_output_device_names(self, force=False):
         if force or not getattr(self, "audio_device_names", None):
@@ -1875,17 +1857,54 @@ class AutoAudioApp(ctk.CTk):
         with self.device_cache_lock:
             return list(self.audio_device_names)
 
+    def audio_device_hints(self, mode):
+        if mode == "headset":
+            return (
+                "headset",
+                "headphone",
+                "headphones",
+                "earbuds",
+                "earphone",
+                "arctis",
+                "razer",
+                "logitech",
+                "wireless",
+                "헤드셋",
+                "헤드폰",
+                "이어폰",
+                "이어버드",
+            )
+        return (
+            "speaker",
+            "speakers",
+            "realtek",
+            "monitor",
+            "display",
+            "hdmi",
+            "pebble",
+            "스피커",
+            "모니터",
+        )
+
+    def infer_audio_device_mode(self, name):
+        lowered = (name or "").casefold()
+        if not lowered:
+            return None
+        speaker_score = sum(1 for hint in self.audio_device_hints("speaker") if hint in lowered)
+        headset_score = sum(1 for hint in self.audio_device_hints("headset") if hint in lowered)
+        if speaker_score > headset_score:
+            return "speaker"
+        if headset_score > speaker_score:
+            return "headset"
+        return None
+
     def pick_audio_device(self, mode, devices, exclude=None):
         devices = [name for name in devices if name and name != "No audio device found"]
         if not devices:
             return ""
         excluded = {exclude} if exclude else set()
         candidates = [name for name in devices if name not in excluded] or devices
-        hints = (
-            ("headset", "headphone", "headphones", "earbuds", "earphone", "arctis", "razer", "logitech", "wireless")
-            if mode == "headset"
-            else ("speaker", "speakers", "realtek", "monitor", "display", "hdmi", "pebble")
-        )
+        hints = self.audio_device_hints(mode)
         for name in candidates:
             lowered = name.lower()
             if any(hint in lowered for hint in hints):
@@ -1896,20 +1915,76 @@ class AutoAudioApp(ctk.CTk):
         devices = [name for name in getattr(self, "audio_device_names", []) if name]
         if not devices:
             return False
+        if "offline_device_log_keys" not in self.__dict__:
+            self.offline_device_log_keys = set()
 
         changed = False
         speaker = self.config_data.get("speaker_name") or ""
         headset = self.config_data.get("headset_name") or ""
+        speaker_hint = self.infer_audio_device_mode(speaker)
+        headset_hint = self.infer_audio_device_mode(headset)
 
-        if speaker not in devices:
-            speaker = self.pick_audio_device("speaker", devices)
+        if (
+            speaker in devices
+            and headset in devices
+            and speaker != headset
+            and speaker_hint == "headset"
+            and headset_hint == "speaker"
+        ):
+            logging.warning("audio config appears swapped; correcting speaker=%s headset=%s", speaker, headset)
+            speaker, headset = headset, speaker
             self.config_data["speaker_name"] = speaker
+            self.config_data["headset_name"] = headset
             changed = True
 
-        if headset not in devices or (len(devices) > 1 and headset == speaker):
+        if speaker not in devices:
+            if speaker and speaker != "No audio device found":
+                log_key = ("speaker", speaker)
+                if log_key not in self.offline_device_log_keys:
+                    logging.warning("configured speaker output is not currently active; keeping saved value speaker=%s", speaker)
+                    self.offline_device_log_keys.add(log_key)
+            else:
+                speaker = self.pick_audio_device("speaker", devices)
+                self.config_data["speaker_name"] = speaker
+                changed = True
+        elif self.infer_audio_device_mode(speaker) == "headset" and len(devices) > 1:
+            self.offline_device_log_keys.discard(("speaker", speaker))
+            candidate = self.pick_audio_device("speaker", devices, exclude=headset)
+            if candidate != speaker and self.infer_audio_device_mode(candidate) == "speaker":
+                logging.warning("speaker output looked like headset; correcting speaker=%s -> %s", speaker, candidate)
+                speaker = candidate
+                self.config_data["speaker_name"] = speaker
+                changed = True
+        else:
+            self.offline_device_log_keys.discard(("speaker", speaker))
+
+        if headset not in devices:
+            if headset and headset != "No audio device found":
+                log_key = ("headset", headset)
+                if log_key not in self.offline_device_log_keys:
+                    logging.warning("configured headset output is not currently active; keeping saved value headset=%s", headset)
+                    self.offline_device_log_keys.add(log_key)
+            else:
+                headset = self.pick_audio_device("headset", devices, exclude=speaker)
+                self.config_data["headset_name"] = headset
+                changed = True
+        elif len(devices) > 1 and headset == speaker:
+            self.offline_device_log_keys.discard(("headset", headset))
+            speaker = self.pick_audio_device("speaker", devices)
+            self.config_data["speaker_name"] = speaker
             headset = self.pick_audio_device("headset", devices, exclude=speaker)
             self.config_data["headset_name"] = headset
             changed = True
+        elif self.infer_audio_device_mode(headset) == "speaker" and len(devices) > 1:
+            self.offline_device_log_keys.discard(("headset", headset))
+            candidate = self.pick_audio_device("headset", devices, exclude=speaker)
+            if candidate != headset and self.infer_audio_device_mode(candidate) == "headset":
+                logging.warning("headset output looked like speaker; correcting headset=%s -> %s", headset, candidate)
+                headset = candidate
+                self.config_data["headset_name"] = headset
+                changed = True
+        else:
+            self.offline_device_log_keys.discard(("headset", headset))
 
         if changed and save_changes:
             self.save_config()
@@ -1917,13 +1992,14 @@ class AutoAudioApp(ctk.CTk):
 
     def draw_ui(self):
         self.unbind("<FocusOut>")
+        if hasattr(self, "audio_switching") and not self.audio_switching:
+            self.sync_last_state_with_current_output(force=True)
         for widget in self.winfo_children():
             widget.destroy()
 
         if self.is_mini:
             self.draw_mini_ui()
         else:
-            self.list_drop_targets = {}
             self.draw_settings_ui()
 
     def create_marquee_label(self, parent, text, font_tuple, text_color, bg_color, height, bg_origin=None):
@@ -1943,17 +2019,6 @@ class AutoAudioApp(ctk.CTk):
         canvas.bind("<Configure>", lambda event, c=canvas: self.reset_marquee(c))
         self.render_marquee(canvas)
         return canvas
-
-    def set_marquee_text(self, canvas, text):
-        if not canvas or not canvas.winfo_exists():
-            return
-        config = canvas._marquee_config
-        config["text"] = text or ""
-        config["offset"] = 0
-        config["direction"] = 1
-        config["pause"] = MARQUEE_EDGE_PAUSE_TICKS
-        self.cancel_marquee(canvas)
-        self.render_marquee(canvas)
 
     def reset_marquee(self, canvas):
         if not canvas or not canvas.winfo_exists():
@@ -2323,8 +2388,41 @@ class AutoAudioApp(ctk.CTk):
 
 
     def build_device_options(self):
-        options = [name for name in self.audio_device_names if name]
+        options = []
+        active_devices = {name for name in self.audio_device_names if name}
+        for name in self.audio_device_names:
+            if name and name not in options:
+                options.append(name)
+        for key in ("speaker_name", "headset_name"):
+            saved_name = self.config_data.get(key) or ""
+            if saved_name and saved_name != "No audio device found" and saved_name not in active_devices:
+                display_name = self.format_device_option(saved_name, offline=True)
+                if display_name not in options:
+                    options.append(display_name)
         return options or ["No audio device found"]
+
+    def format_device_option(self, name, offline=False):
+        if not name:
+            return ""
+        if offline and not name.endswith(OFFLINE_DEVICE_SUFFIX):
+            return f"{name}{OFFLINE_DEVICE_SUFFIX}"
+        return name
+
+    def device_name_from_option(self, value):
+        if not value:
+            return ""
+        return value[:-len(OFFLINE_DEVICE_SUFFIX)] if value.endswith(OFFLINE_DEVICE_SUFFIX) else value
+
+    def device_option_for_name(self, name, device_options=None):
+        if not name:
+            return ""
+        device_options = device_options or self.build_device_options()
+        if name in device_options:
+            return name
+        offline_option = self.format_device_option(name, offline=True)
+        if offline_option in device_options:
+            return offline_option
+        return name
 
     def refresh_settings_devices_async(self):
         if self.settings_device_refresh_active:
@@ -2358,8 +2456,9 @@ class AutoAudioApp(ctk.CTk):
             if not variable or not menu:
                 continue
             configured = self.config_data.get(f"{mode}_name")
+            configured_option = self.device_option_for_name(configured, device_options)
             if variable.get() not in device_options:
-                variable.set(configured if configured in device_options else device_options[0])
+                variable.set(configured_option if configured_option in device_options else device_options[0])
             self.replace_menu_commands(menu, device_options, variable.set)
             refresh = controls.get("refresh")
             if refresh:
@@ -2371,20 +2470,30 @@ class AutoAudioApp(ctk.CTk):
         frame.pack_propagate(False)
         frame.grid_propagate(False)
         is_active = self.last_state == mode
-        header_image = make_setting_device_header_image(mode, title, is_active, width=header_width)
+        is_available = is_active or self.is_audio_mode_available(mode)
+        header_image = make_setting_device_header_image(mode, title, is_active, width=header_width, disabled=not is_available)
         device_button = ctk.CTkLabel(frame, text="", image=header_image, width=header_width, height=39, fg_color=SETTINGS_PANEL_BG, bg_color=SETTINGS_PANEL_BG, cursor="hand2")
         device_button.configure(image=header_image)
         device_button._settings_header_image = header_image
-        device_button.bind("<Button-1>", lambda event: self.manual_set_audio(mode))
+        if is_available:
+            device_button.bind("<Button-1>", lambda event: self.manual_set_audio(mode))
+        else:
+            device_button.configure(cursor="arrow")
+            device_button.bind("<Enter>", lambda event: self.show_offline_output_tooltip(mode, event))
+            device_button.bind("<Motion>", lambda event: self.move_offline_output_tooltip(mode, event))
+            device_button.bind("<Leave>", lambda event: self.hide_offline_output_tooltip())
         device_button.pack(fill="x")
 
-        variable = ctk.StringVar(value=self.config_data.get(f"{mode}_name") if self.config_data.get(f"{mode}_name") in device_options else device_options[0])
+        saved_device = self.config_data.get(f"{mode}_name") or ""
+        selected_device = self.device_option_for_name(saved_device, device_options)
+        if selected_device not in device_options:
+            selected_device = device_options[0]
+        variable = ctk.StringVar(value=selected_device)
         if mode == "speaker":
             self.sp_var = variable
         else:
             self.hs_var = variable
 
-        selected_device = self.config_data.get(f"{mode}_name") if self.config_data.get(f"{mode}_name") in device_options else device_options[0]
         dropdown_image = make_setting_device_dropdown_image(selected_device, is_active, width=header_width)
         option_menu = ctk.CTkLabel(frame, text="", image=dropdown_image, width=header_width, height=37, fg_color=SETTINGS_PANEL_BG, bg_color=SETTINGS_PANEL_BG, cursor="hand2")
         option_menu._settings_dropdown_image = dropdown_image
@@ -2403,17 +2512,31 @@ class AutoAudioApp(ctk.CTk):
         def refresh_visuals():
             current_width = max(120, frame.winfo_width() or header_width)
             active = self.last_state == mode
-            header = make_setting_device_header_image(mode, title, active, width=current_width, hover=hover_state["header"])
+            available = active or self.is_audio_mode_available(mode)
+            header = make_setting_device_header_image(mode, title, active, width=current_width, hover=hover_state["header"], disabled=not available)
             dropdown = make_setting_device_dropdown_image(variable.get(), active, width=current_width, hover=hover_state["dropdown"])
             device_button._settings_header_image = header
             option_menu._settings_dropdown_image = dropdown
             device_button.configure(image=header, width=current_width)
             option_menu.configure(image=dropdown, width=current_width)
             dropdown_menu.configure(background=DEVICE_ACTIVE_COLOR if active else DEVICE_INACTIVE_COLOR)
+            if available:
+                self.hide_offline_output_tooltip()
+                device_button.configure(cursor="hand2")
+                device_button.bind("<Button-1>", lambda event: self.manual_set_audio(mode))
+                device_button.bind("<Enter>", lambda event: set_header_hover(True))
+                device_button.unbind("<Motion>")
+                device_button.bind("<Leave>", lambda event: set_header_hover(False))
+            else:
+                device_button.configure(cursor="arrow")
+                device_button.unbind("<Button-1>")
+                device_button.bind("<Enter>", lambda event: self.show_offline_output_tooltip(mode, event))
+                device_button.bind("<Motion>", lambda event: self.move_offline_output_tooltip(mode, event))
+                device_button.bind("<Leave>", lambda event: self.hide_offline_output_tooltip())
 
         def set_header_hover(is_hovered):
             hover_state["header"] = is_hovered
-            if self.last_state != mode:
+            if self.last_state != mode and self.is_audio_mode_available(mode):
                 refresh_visuals()
 
         def set_dropdown_hover(is_hovered):
@@ -2432,8 +2555,13 @@ class AutoAudioApp(ctk.CTk):
                 except Exception:
                     pass
 
-        device_button.bind("<Enter>", lambda event: set_header_hover(True))
-        device_button.bind("<Leave>", lambda event: set_header_hover(False))
+        if is_available:
+            device_button.bind("<Enter>", lambda event: set_header_hover(True))
+            device_button.bind("<Leave>", lambda event: set_header_hover(False))
+        else:
+            device_button.bind("<Enter>", lambda event: self.show_offline_output_tooltip(mode, event))
+            device_button.bind("<Motion>", lambda event: self.move_offline_output_tooltip(mode, event))
+            device_button.bind("<Leave>", lambda event: self.hide_offline_output_tooltip())
         option_menu.bind("<Button-1>", open_dropdown)
         option_menu.bind("<Enter>", lambda event: set_dropdown_hover(True))
         option_menu.bind("<Leave>", lambda event: set_dropdown_hover(False))
@@ -2611,9 +2739,6 @@ class AutoAudioApp(ctk.CTk):
     def refresh_program_lists(self):
         if not hasattr(self, "program_list_frame") or not self.program_list_frame.winfo_exists():
             return
-        self.list_drop_targets = {}
-        self.program_list_scrolls = {}
-        self.program_row_widgets = {}
         for widget in self.program_list_frame.winfo_children():
             widget.destroy()
         self.program_list_frame.grid_columnconfigure(0, weight=1)
@@ -2637,8 +2762,6 @@ class AutoAudioApp(ctk.CTk):
         scroll = ctk.CTkScrollableFrame(scroll_shell, fg_color=SURFACE_BG, bg_color=SURFACE_BG, border_width=0, corner_radius=0)
         scroll.pack(fill="both", expand=True, padx=4, pady=4)
         self.normalize_scrollable_background(scroll, SURFACE_BG)
-        self.program_list_scrolls["program_list"] = scroll
-        self.list_drop_targets["program_list"] = self.get_scroll_drop_widgets(scroll)
 
         entries = list(self.iter_program_entries())
         if not entries:
@@ -2651,45 +2774,10 @@ class AutoAudioApp(ctk.CTk):
 
         ctk.CTkButton(section, text="+  Add Program", height=39, fg_color=CONTROL_BG, hover_color=CONTROL_HOVER, corner_radius=13, font=("Segoe UI", 14), command=lambda: self.open_add_program_menu("ask_list")).grid(row=1, column=0, sticky="ew", padx=0, pady=(0, 6))
 
-    def create_list_ui(self, parent, title, key, row=None, column=None, padx=0):
-        section = ctk.CTkFrame(parent, fg_color="transparent", bg_color=SETTINGS_PANEL_BG, corner_radius=0)
-        if row is None or column is None:
-            section.pack(fill="both", expand=True)
-        else:
-            section.grid(row=row, column=column, sticky="nsew", padx=padx)
-        section.grid_rowconfigure(1, weight=1)
-        section.grid_columnconfigure(0, weight=1)
-
-        header = ctk.CTkFrame(section, fg_color="transparent", bg_color=SETTINGS_PANEL_BG, corner_radius=0)
-        header.grid(row=0, column=0, sticky="ew", padx=0, pady=(4, 2))
-        ctk.CTkFrame(header, fg_color="#636363", width=2, height=15, corner_radius=4).pack(side="left", padx=(0, 5))
-        ctk.CTkLabel(header, text=title, font=("Segoe UI", 14), text_color="white", fg_color=SETTINGS_PANEL_BG, bg_color=SETTINGS_PANEL_BG).pack(side="left")
-
-        scroll_shell = ctk.CTkFrame(section, fg_color=SURFACE_BG, bg_color=SETTINGS_PANEL_BG, border_width=1, border_color="#080808", corner_radius=SETTINGS_PANEL_RADIUS)
-        scroll_shell.grid(row=1, column=0, sticky="nsew", padx=0, pady=(0, 8))
-        scroll_shell.pack_propagate(False)
-        scroll = ctk.CTkScrollableFrame(scroll_shell, fg_color=SURFACE_BG, bg_color=SURFACE_BG, border_width=0, corner_radius=0)
-        scroll.pack(fill="both", expand=True, padx=4, pady=4)
-        self.normalize_scrollable_background(scroll, SURFACE_BG)
-        self.program_list_scrolls[key] = scroll
-        self.list_drop_targets[key] = self.get_scroll_drop_widgets(scroll)
-
-        programs = self.config_data[key]
-        if not programs:
-            placeholder = ctk.CTkLabel(scroll, text="No programs yet", text_color="#777777", height=40)
-            placeholder._empty_placeholder = True
-            placeholder.pack(fill="x")
-        else:
-            for program in programs:
-                self.create_program_row(scroll, key, program)
-
-        ctk.CTkButton(section, text="+  Add Program", height=39, fg_color=CONTROL_BG, hover_color=CONTROL_HOVER, corner_radius=13, font=("Segoe UI", 14), command=lambda: self.open_add_program_menu(key)).grid(row=2, column=0, sticky="ew", padx=0, pady=(0, 6))
-
     def create_program_row(self, parent, key, program):
         item = ctk.CTkFrame(parent, fg_color=SETTINGS_ROW_BG, corner_radius=7, height=51)
         item.pack(fill="x", pady=2, padx=4)
         item.pack_propagate(False)
-        self.program_row_widgets[(key, self.program_key(program))] = item
 
         icon_source = self.get_program_icon_source(program)
         icon = self.get_cached_program_icon_if_ready(icon_source, size=PROGRAM_ICON_SIZE)
@@ -2771,81 +2859,6 @@ class AutoAudioApp(ctk.CTk):
         ) if icon_source else None
         self.update_detect_ui(program.get("name", "Unknown"), icon)
 
-    def start_program_drag(self, event, source_key, program):
-        self.drag_data = {
-            "source_key": source_key,
-            "program": program,
-            "start_x": event.x_root,
-            "start_y": event.y_root,
-        }
-        row = self.program_row_widgets.get((source_key, self.program_key(program)))
-        if row and row.winfo_exists():
-            self.drag_data["row"] = row
-            self.set_program_row_dragging(row, True)
-        self.show_drag_preview(program, event.x_root, event.y_root)
-
-    def show_drag_preview(self, program, x, y):
-        self.destroy_drag_preview()
-        preview = ctk.CTkToplevel(self)
-        preview.overrideredirect(True)
-        preview.attributes("-topmost", True)
-        preview.configure(fg_color="#202020")
-        ctk.CTkLabel(
-            preview,
-            text=program.get("name", "Program"),
-            font=("Segoe UI", 12, "bold"),
-            text_color="white",
-        ).pack(padx=12, pady=6)
-        self.drag_preview = preview
-        self.move_drag_preview(x, y)
-
-    def set_program_row_dragging(self, row, dragging):
-        try:
-            row.configure(fg_color="#252525" if dragging else SETTINGS_ROW_BG)
-        except Exception:
-            pass
-
-    def update_program_drag(self, event):
-        if not self.drag_data:
-            return
-        self.move_drag_preview(event.x_root, event.y_root)
-
-    def move_drag_preview(self, x, y):
-        if hasattr(self, "drag_preview") and self.drag_preview.winfo_exists():
-            self.drag_preview.geometry(f"+{x + 14}+{y + 14}")
-
-    def destroy_drag_preview(self):
-        if hasattr(self, "drag_preview") and self.drag_preview.winfo_exists():
-            self.drag_preview.destroy()
-
-    def finish_program_drag(self, event):
-        if not self.drag_data:
-            return
-
-        source_key = self.drag_data["source_key"]
-        self.update_idletasks()
-        x = self.winfo_pointerx()
-        y = self.winfo_pointery()
-        target_key = self.get_drop_target_key(x, y) or self.get_drop_target_key(event.x_root, event.y_root)
-        program = self.drag_data["program"]
-        row = self.drag_data.get("row")
-        self.drag_data = None
-        self.destroy_drag_preview()
-        if row and row.winfo_exists():
-            self.set_program_row_dragging(row, False)
-
-        if not target_key or target_key == source_key:
-            return
-        self.move_program_between_lists(source_key, target_key, program)
-
-    def get_scroll_drop_widgets(self, scroll):
-        widgets = [scroll]
-        for attr in ("_parent_canvas", "_parent_frame", "_scrollbar"):
-            widget = getattr(scroll, attr, None)
-            if widget is not None:
-                widgets.append(widget)
-        return widgets
-
     def normalize_scrollable_background(self, scroll, color):
         for attr in ("_parent_canvas", "_parent_frame"):
             widget = getattr(scroll, attr, None)
@@ -2866,25 +2879,6 @@ class AutoAudioApp(ctk.CTk):
                 scrollbar.configure(fg_color=color, bg_color=color)
             except Exception:
                 pass
-
-    def get_drop_target_key(self, x, y):
-        for key, widgets in self.list_drop_targets.items():
-            for widget in widgets:
-                if self.point_inside_widget(widget, x, y):
-                    return key
-        return None
-
-    def point_inside_widget(self, widget, x, y):
-        try:
-            if not widget.winfo_exists():
-                return False
-            left = widget.winfo_rootx()
-            top = widget.winfo_rooty()
-            right = left + widget.winfo_width()
-            bottom = top + widget.winfo_height()
-            return left <= x <= right and top <= y <= bottom
-        except Exception:
-            return False
 
     def bind_click_target(self, widget, command):
         def handle_click(event=None):
@@ -2915,53 +2909,6 @@ class AutoAudioApp(ctk.CTk):
             if self.program_key(item) == target:
                 return index
         return None
-
-    def move_program_between_lists(self, source_key, target_key, program):
-        source_index = self.find_program_index(source_key, program)
-        if source_index is None:
-            return
-        if self.program_exists(target_key, program):
-            messagebox.showinfo("Auto Audio", "This program rule already exists in the target list.")
-            return
-        moved_program = self.config_data[source_key].pop(source_index)
-        self.config_data[target_key].append(moved_program)
-        self.save_config()
-        if not self.move_program_row_widget(source_key, target_key, moved_program):
-            self.refresh_program_lists()
-        self.update_idletasks()
-
-    def move_program_row_widget(self, source_key, target_key, program):
-        row_key = self.program_key(program)
-        row = self.program_row_widgets.pop((source_key, row_key), None)
-        target_scroll = getattr(self, "program_list_scrolls", {}).get(target_key)
-        if not target_scroll:
-            return False
-        try:
-            if not target_scroll.winfo_exists():
-                return False
-            if row and row.winfo_exists():
-                row.destroy()
-            self.create_program_row(target_scroll, target_key, program)
-            self.update_empty_list_placeholders_after_move(source_key, target_key)
-            return True
-        except Exception:
-            return False
-
-    def update_empty_list_placeholders_after_move(self, source_key, target_key):
-        for key in (source_key, target_key):
-            scroll = getattr(self, "program_list_scrolls", {}).get(key)
-            if not scroll or not scroll.winfo_exists():
-                continue
-            for child in scroll.winfo_children():
-                if getattr(child, "_empty_placeholder", False):
-                    child.destroy()
-            if not self.config_data[key]:
-                placeholder = ctk.CTkLabel(scroll, text="No programs yet", text_color="#777777", height=40)
-                placeholder._empty_placeholder = True
-                placeholder.pack(fill="x")
-
-    def target_color(self, program, mode):
-        return ACTIVE_COLOR if program.get("target_audio") == mode else CONTROL_BG
 
     def create_program_target_button(self, parent, key, program, mode):
         active = program.get("target_audio") == mode
@@ -3100,22 +3047,110 @@ class AutoAudioApp(ctk.CTk):
     def audio_label(self, state):
         return "Headset" if state == "headset" else "Speaker"
 
+    def log_once(self, key, message, *args, level=logging.INFO):
+        if "loop_guard_log_keys" not in self.__dict__:
+            self.loop_guard_log_keys = set()
+        if key in self.loop_guard_log_keys:
+            return
+        self.loop_guard_log_keys.add(key)
+        logging.log(level, message, *args)
+
+    def audio_mode_target_name(self, mode):
+        return self.config_data.get("headset_name" if mode == "headset" else "speaker_name", "")
+
+    def is_audio_mode_available(self, mode, refresh=False):
+        if refresh:
+            self.refresh_audio_device_cache_if_stale(force=True)
+        target = self.audio_mode_target_name(mode)
+        if not target or target == "No audio device found":
+            return False
+        with self.device_cache_lock:
+            return target in set(self.audio_device_names) and bool(self.audio_device_ids.get(target))
+
     def update_mini_buttons_ui(self, state):
         if self.audio_switching:
             self.show_audio_switching_ui(self.audio_switch_target, redraw=False)
             return
         self.clear_audio_switching_ui(redraw=False)
         if hasattr(self, "speaker_btn") and self.speaker_btn.winfo_exists():
-            self.speaker_btn.configure(image=self.mini_button_images["speaker_active" if state == "speaker" else "speaker_inactive"])
-            self.headset_btn.configure(image=self.mini_button_images["headset_active" if state == "headset" else "headset_inactive"])
-            self.speaker_btn.bind("<Enter>", lambda event: self.set_mini_device_button_hover("speaker", True))
-            self.speaker_btn.bind("<Leave>", lambda event: self.set_mini_device_button_hover("speaker", False))
-            self.headset_btn.bind("<Enter>", lambda event: self.set_mini_device_button_hover("headset", True))
-            self.headset_btn.bind("<Leave>", lambda event: self.set_mini_device_button_hover("headset", False))
+            availability = {
+                "speaker": state == "speaker" or self.is_audio_mode_available("speaker"),
+                "headset": state == "headset" or self.is_audio_mode_available("headset"),
+            }
+            self.speaker_btn.configure(image=self.mini_button_images["speaker_active" if state == "speaker" else "speaker_inactive" if availability["speaker"] else "speaker_disabled"])
+            self.headset_btn.configure(image=self.mini_button_images["headset_active" if state == "headset" else "headset_inactive" if availability["headset"] else "headset_disabled"])
+            for mode, button in (("speaker", self.speaker_btn), ("headset", self.headset_btn)):
+                if availability[mode]:
+                    button.configure(cursor="hand2")
+                    button.bind("<Button-1>", lambda event, target_mode=mode: self.manual_set_audio(target_mode))
+                    button.bind("<Enter>", lambda event, target_mode=mode: self.set_mini_device_button_hover(target_mode, True))
+                    button.bind("<Leave>", lambda event, target_mode=mode: self.set_mini_device_button_hover(target_mode, False))
+                else:
+                    button.configure(cursor="arrow")
+                    button.unbind("<Button-1>")
+                    button.bind("<Enter>", lambda event, target_mode=mode: self.show_offline_output_tooltip(target_mode, event))
+                    button.bind("<Motion>", lambda event, target_mode=mode: self.move_offline_output_tooltip(target_mode, event))
+                    button.bind("<Leave>", lambda event: self.hide_offline_output_tooltip())
         self.update_device_controls_ui(state)
 
+    def offline_output_message(self, mode):
+        target = self.audio_mode_target_name(mode)
+        if target:
+            return f"{self.audio_label(mode)} output is offline"
+        return f"{self.audio_label(mode)} output is not available"
+
+    def tooltip_geometry_near_pointer(self, event, width=210, height=30):
+        x = event.x_root + 12
+        y = event.y_root - height - 12
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        x = max(4, min(x, screen_width - width - 4))
+        y = max(4, min(y, screen_height - height - 4))
+        return f"{width}x{height}+{x}+{y}"
+
+    def show_offline_output_tooltip(self, mode, event):
+        if self.is_audio_mode_available(mode):
+            self.hide_offline_output_tooltip()
+            return
+        message = self.offline_output_message(mode)
+        if not self.__dict__.get("offline_tooltip") or not self.offline_tooltip.winfo_exists():
+            tooltip = tk.Toplevel(self)
+            tooltip.withdraw()
+            tooltip.overrideredirect(True)
+            tooltip.attributes("-topmost", True)
+            tooltip.configure(bg="#111111")
+            label = tk.Label(
+                tooltip,
+                text=message,
+                bg="#111111",
+                fg="#E8E8E8",
+                bd=0,
+                padx=10,
+                pady=5,
+                font=("Segoe UI", 10),
+            )
+            label.pack(fill="both", expand=True)
+            self.offline_tooltip = tooltip
+            self.offline_tooltip_label = label
+        else:
+            self.offline_tooltip_label.configure(text=message)
+        self.move_offline_output_tooltip(mode, event)
+        self.offline_tooltip.deiconify()
+        self.offline_tooltip.lift()
+
+    def move_offline_output_tooltip(self, mode, event):
+        tooltip = self.__dict__.get("offline_tooltip")
+        if not tooltip or not tooltip.winfo_exists():
+            return
+        tooltip.geometry(self.tooltip_geometry_near_pointer(event))
+
+    def hide_offline_output_tooltip(self):
+        tooltip = self.__dict__.get("offline_tooltip")
+        if tooltip and tooltip.winfo_exists():
+            tooltip.withdraw()
+
     def set_mini_device_button_hover(self, mode, is_hovered):
-        if self.audio_switching or self.last_state == mode:
+        if self.audio_switching or self.last_state == mode or not self.is_audio_mode_available(mode):
             return
         button = getattr(self, f"{mode}_btn", None)
         if button and button.winfo_exists():
@@ -3123,6 +3158,7 @@ class AutoAudioApp(ctk.CTk):
             button.configure(image=self.mini_button_images[image_key])
 
     def show_audio_switching_ui(self, target=None, redraw=True):
+        self.hide_offline_output_tooltip()
         self.audio_switching = True
         self.audio_switch_target = target
         if redraw:
@@ -3198,6 +3234,42 @@ class AutoAudioApp(ctk.CTk):
         self.notification_after_id = self.after(int(duration_seconds * 1000), self.finish_audio_change_notification)
         logging.info("notification hide scheduled after_ms=%s", int(duration_seconds * 1000))
 
+    def show_audio_offline_notification(self, mode, target):
+        duration_seconds = self.get_mini_notification_seconds()
+        if self.notification_after_id:
+            try:
+                self.after_cancel(self.notification_after_id)
+            except Exception:
+                pass
+            self.notification_after_id = None
+
+        current_mode = self.sync_last_state_with_current_output(force=True) or self.last_state
+        self.notification_active = True
+        self.ask_active = False
+        self.pending_prompt_key = None
+        self.mini_pinned_by_user = False
+        was_mini_visible = self.is_mini and self.winfo_viewable()
+        logging.info(
+            "offline notification show mode=%s target=%s current=%s duration=%s was_mini_visible=%s",
+            mode,
+            target,
+            current_mode,
+            duration_seconds,
+            was_mini_visible,
+        )
+        self.switch_mode("mini", focus=False, animate_mini=not was_mini_visible)
+        self.update_mini_buttons_ui(current_mode)
+        self.update_mini_detect_canvas(f"{self.audio_label(mode)} output offline", self.icons.get(mode))
+        self.notification_after_id = self.after(int(duration_seconds * 1000), self.finish_audio_offline_notification)
+
+    def finish_audio_offline_notification(self):
+        logging.info("offline notification finish visible=%s is_mini=%s", self.winfo_viewable(), self.is_mini)
+        self.notification_active = False
+        self.notification_after_id = None
+        current_mode = self.sync_last_state_with_current_output(force=True) or self.last_state
+        self.update_mini_buttons_ui(current_mode)
+        self.update_mini_detect_canvas(self.current_detected_name, self.current_detected_icon)
+
     def finish_audio_change_notification(self):
         logging.info("notification finish visible=%s is_mini=%s ask=%s pinned=%s", self.winfo_viewable(), self.is_mini, self.ask_active, self.mini_pinned_by_user)
         self.notification_active = False
@@ -3219,6 +3291,13 @@ class AutoAudioApp(ctk.CTk):
 
     def manual_set_audio(self, mode):
         logging.info("manual audio requested mode=%s last_state=%s switching=%s", mode, self.last_state, self.audio_switching)
+        if self.audio_switching:
+            logging.info("manual audio ignored because already switching requested=%s current_target=%s", mode, self.audio_switch_target)
+            return
+        if not self.is_audio_mode_available(mode):
+            logging.info("manual audio ignored offline mode=%s target=%s", mode, self.audio_mode_target_name(mode))
+            self.update_mini_buttons_ui(self.last_state)
+            return
         self.start_audio_switch(mode, on_success=lambda: self.finish_manual_audio_switch(mode))
 
     def finish_manual_audio_switch(self, mode):
@@ -3271,7 +3350,10 @@ class AutoAudioApp(ctk.CTk):
             if on_success:
                 on_success()
         else:
-            self.update_mini_buttons_ui(self.last_state)
+            if self.last_audio_switch_failure_reason == "offline":
+                self.show_audio_offline_notification(mode, self.last_audio_switch_failure_target)
+            else:
+                self.update_mini_buttons_ui(self.last_state)
             if on_failure:
                 on_failure()
 
@@ -3287,7 +3369,10 @@ class AutoAudioApp(ctk.CTk):
             self.update_mini_buttons_ui(target)
             self.show_audio_change_notification(target, program_name, icon)
         else:
-            self.update_mini_buttons_ui(self.last_state)
+            if self.last_audio_switch_failure_reason == "offline":
+                self.show_audio_offline_notification(target, self.last_audio_switch_failure_target)
+            else:
+                self.update_mini_buttons_ui(self.last_state)
 
     def finish_restore_speaker_switch(self, changed):
         logging.info("restore speaker finish changed=%s", changed)
@@ -3303,9 +3388,16 @@ class AutoAudioApp(ctk.CTk):
             self.update_mini_buttons_ui("speaker")
             self.show_audio_change_notification("speaker", "No Program Detected", None)
         else:
-            self.update_mini_buttons_ui(self.last_state)
+            if self.last_audio_switch_failure_reason == "offline":
+                self.show_audio_offline_notification("speaker", self.last_audio_switch_failure_target)
+            else:
+                self.update_mini_buttons_ui(self.last_state)
 
     def set_audio(self, mode):
+        started_at = time.perf_counter()
+        self.last_audio_switch_failure_reason = None
+        self.last_audio_switch_failure_target = None
+        self.sync_audio_config_with_devices(save_changes=True)
         target = self.config_data["headset_name"] if mode == "headset" else self.config_data["speaker_name"]
         with self.device_cache_lock:
             device_id = self.audio_device_ids.get(target)
@@ -3314,32 +3406,37 @@ class AutoAudioApp(ctk.CTk):
         logging.info("set_audio begin mode=%s target=%s device_id_known=%s known_devices=%s", mode, target, bool(device_id), len(known_devices))
         if not target or target == "No audio device found":
             print(f"audio switch failed: no valid {mode} output device selected")
+            self.last_audio_switch_failure_reason = "offline"
+            self.last_audio_switch_failure_target = target
             logging.warning("set_audio failed invalid target mode=%s target=%s", mode, target)
             return False
         if target not in known_devices or not device_id:
             logging.info("set_audio refreshing device cache mode=%s target_in_known=%s device_id_known=%s", mode, target in known_devices, bool(device_id))
             self.refresh_audio_device_cache(include_input=False)
             self.sync_audio_config_with_devices(save_changes=True)
+            target = self.config_data["headset_name"] if mode == "headset" else self.config_data["speaker_name"]
             with self.device_cache_lock:
                 device_id = self.audio_device_ids.get(target)
                 known_devices = set(self.audio_device_names)
             if target not in known_devices or not device_id:
                 print(f"audio switch failed: no valid {mode} output device selected")
+                self.last_audio_switch_failure_reason = "offline"
+                self.last_audio_switch_failure_target = target
                 logging.warning("set_audio failed after refresh mode=%s target=%s known_devices=%s device_id_known=%s", mode, target, len(known_devices), bool(device_id))
                 return False
 
         if self.set_audio_with_pycaw(target, device_id):
-            if self.wait_for_audio_mode(mode):
-                logging.info("set_audio success via pycaw mode=%s target=%s", mode, target)
+            if self.wait_for_audio_target(mode, target):
+                logging.info("set_audio success via pycaw mode=%s target=%s elapsed_ms=%d", mode, target, int((time.perf_counter() - started_at) * 1000))
                 return True
             print(f"pycaw reported success, but {mode} output was not confirmed")
             logging.warning("set_audio pycaw unconfirmed mode=%s target=%s current=%s", mode, target, self.get_current_output_name())
 
         if self.set_audio_with_nircmd(target):
-            confirmed = self.wait_for_audio_mode(mode)
-            logging.info("set_audio nircmd result mode=%s target=%s confirmed=%s", mode, target, confirmed)
+            confirmed = self.wait_for_audio_target(mode, target)
+            logging.info("set_audio nircmd result mode=%s target=%s confirmed=%s elapsed_ms=%d", mode, target, confirmed, int((time.perf_counter() - started_at) * 1000))
             return confirmed
-        logging.warning("set_audio failed all methods mode=%s target=%s", mode, target)
+        logging.warning("set_audio failed all methods mode=%s target=%s elapsed_ms=%d", mode, target, int((time.perf_counter() - started_at) * 1000))
         return False
 
     def audio_names_equal(self, left, right):
@@ -3361,6 +3458,9 @@ class AutoAudioApp(ctk.CTk):
         current_name = self.get_current_output_name()
         if not current_name:
             return None
+        return self.get_audio_mode_for_output_name(current_name)
+
+    def get_audio_mode_for_output_name(self, current_name):
         if self.audio_names_equal(current_name, self.config_data.get("speaker_name", "")):
             return "speaker"
         if self.audio_names_equal(current_name, self.config_data.get("headset_name", "")):
@@ -3377,11 +3477,16 @@ class AutoAudioApp(ctk.CTk):
             self.current_audio_mode_cache = current_mode
         return current_mode
 
-    def wait_for_audio_mode(self, mode):
+    def wait_for_audio_target(self, mode, target):
         deadline = time.monotonic() + AUDIO_SWITCH_VERIFY_TIMEOUT_SECONDS
         observed_known_mode = False
         while time.monotonic() < deadline:
-            current_mode = self.get_current_audio_mode()
+            current_name = self.get_current_output_name()
+            if self.audio_names_equal(current_name, target):
+                self.current_audio_mode_cache = mode
+                self.last_audio_sync_time = time.monotonic()
+                return True
+            current_mode = self.get_audio_mode_for_output_name(current_name)
             if current_mode == mode:
                 self.current_audio_mode_cache = mode
                 self.last_audio_sync_time = time.monotonic()
@@ -3394,12 +3499,22 @@ class AutoAudioApp(ctk.CTk):
     def sync_last_state_with_current_output(self, force=False):
         current_mode = self.get_cached_current_audio_mode(force=force)
         if current_mode and current_mode != self.last_state:
+            logging.info("current output sync state=%s -> %s", self.last_state, current_mode)
             self.last_state = current_mode
             self.after(0, lambda state=current_mode: self.update_mini_buttons_ui(state))
         return current_mode
 
     def force_startup_speaker_output(self):
         if not self.config_data.get("speaker_name"):
+            return
+        self.refresh_audio_device_cache_if_stale(force=True)
+        if not self.is_audio_mode_available("speaker"):
+            self.log_once(
+                ("startup_speaker_offline", self.audio_mode_target_name("speaker")),
+                "startup speaker restore skipped offline device=%s",
+                self.audio_mode_target_name("speaker"),
+            )
+            self.sync_last_state_with_current_output(force=True)
             return
         self.audio_switching = True
         self.audio_switch_target = "speaker"
@@ -3445,36 +3560,8 @@ class AutoAudioApp(ctk.CTk):
         self.user32_callback.CallNextHookEx.restype = LRESULT
         self.user32.UnhookWindowsHookEx.argtypes = [HHOOK]
         self.user32.UnhookWindowsHookEx.restype = wintypes.BOOL
-        self.user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
-        self.user32.SendInput.restype = wintypes.UINT
-        self.user32.MapVirtualKeyW.argtypes = [wintypes.UINT, wintypes.UINT]
-        self.user32.MapVirtualKeyW.restype = wintypes.UINT
-
         self.kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
         self.kernel32.GetModuleHandleW.restype = HMODULE
-
-    def send_hotkey(self, hotkey):
-        hotkey = self.normalize_hotkey_name(hotkey)
-        vk = HOTKEY_VK.get(hotkey)
-        if not vk:
-            return False
-        try:
-            self.configure_keyboard_api()
-            scan_code = self.user32.MapVirtualKeyW(vk, MAPVK_VK_TO_VSC)
-            inputs = (INPUT * 2)()
-            inputs[0].type = INPUT_KEYBOARD
-            inputs[0].union.ki = KEYBDINPUT(vk, scan_code, 0, 0, 0)
-            inputs[1].type = INPUT_KEYBOARD
-            inputs[1].union.ki = KEYBDINPUT(vk, scan_code, KEYEVENTF_KEYUP, 0, 0)
-
-            sent = self.user32.SendInput(2, inputs, ctypes.sizeof(INPUT))
-            if sent != 2:
-                print(f"hotkey send failed: SendInput sent {sent}/2, error {ctypes.get_last_error()}")
-                return False
-            return True
-        except Exception as exc:
-            print(f"hotkey send failed: {exc}")
-            return False
 
     def install_keyboard_hook(self):
         if self.keyboard_hook:
@@ -3596,8 +3683,12 @@ class AutoAudioApp(ctk.CTk):
         if self.audio_switching:
             logging.info("output switch hotkey ignored because audio is already switching target=%s", self.audio_switch_target)
             return
-        current_mode = self.sync_last_state_with_current_output(force=True) or self.last_state
+        current_mode = self.sync_last_state_with_current_output(force=False) or self.last_state
         target = "speaker" if current_mode == "headset" else "headset"
+        if not self.is_audio_mode_available(target):
+            logging.info("output switch hotkey ignored offline target=%s device=%s", target, self.audio_mode_target_name(target))
+            self.update_mini_buttons_ui(current_mode)
+            return
         logging.info("output switch hotkey pressed current=%s target=%s", current_mode, target)
         self.start_audio_switch(target, on_success=lambda: self.finish_hotkey_audio_switch(target))
 
@@ -3661,12 +3752,12 @@ class AutoAudioApp(ctk.CTk):
     def save_settings(self):
         self.remember_settings_geometry()
         if hasattr(self, "sp_var"):
-            speaker_name = self.sp_var.get()
-            if speaker_name in self.audio_device_names:
+            speaker_name = self.device_name_from_option(self.sp_var.get())
+            if speaker_name and speaker_name != "No audio device found":
                 self.config_data["speaker_name"] = speaker_name
         if hasattr(self, "hs_var"):
-            headset_name = self.hs_var.get()
-            if headset_name in self.audio_device_names:
+            headset_name = self.device_name_from_option(self.hs_var.get())
+            if headset_name and headset_name != "No audio device found":
                 self.config_data["headset_name"] = headset_name
         if hasattr(self, "output_switch_hotkey_var"):
             hotkey = self.output_switch_hotkey_var.get()
@@ -3745,65 +3836,6 @@ class AutoAudioApp(ctk.CTk):
                 "target_audio": "headset",
             },
         )
-
-    def add_active_window_program(self, key):
-        hwnd = self.find_external_foreground_window()
-        if not hwnd:
-            messagebox.showinfo("Auto Audio", "No active window found.")
-            return
-
-        title = win32gui.GetWindowText(hwnd).strip()
-        _, pid = win32process.GetWindowThreadProcessId(hwnd)
-        try:
-            process = psutil.Process(pid)
-            name = process.name()
-            path = process.exe()
-        except Exception:
-            name = title or "Active Window"
-            path = ""
-
-        display_name = title or name
-        match_value = title if title else name
-        match_type = "window_title" if title else "process_name"
-        self.add_program(
-            key,
-            {
-                "name": display_name,
-                "match_type": match_type,
-                "value": match_value,
-                "path": path,
-                "target_audio": "headset",
-            },
-        )
-
-    def find_external_foreground_window(self):
-        own_pid = os.getpid()
-        hwnd = win32gui.GetForegroundWindow()
-        if hwnd and self.is_external_window(hwnd, own_pid):
-            return hwnd
-
-        windows = []
-
-        def collect(candidate, _):
-            if self.is_external_window(candidate, own_pid):
-                windows.append(candidate)
-
-        try:
-            win32gui.EnumWindows(collect, None)
-        except Exception:
-            pass
-        return windows[0] if windows else None
-
-    def is_external_window(self, hwnd, own_pid):
-        try:
-            if not win32gui.IsWindowVisible(hwnd):
-                return False
-            if not win32gui.GetWindowText(hwnd).strip():
-                return False
-            _, pid = win32process.GetWindowThreadProcessId(hwnd)
-            return pid != own_pid
-        except Exception:
-            return False
 
     def open_running_program_picker(self, key):
         picker = ctk.CTkToplevel(self)
@@ -4038,11 +4070,6 @@ class AutoAudioApp(ctk.CTk):
         editor.bind("<Return>", lambda event: save_name())
         editor.bind("<Escape>", lambda event: editor.destroy())
 
-    def icon_source_label(self, path):
-        if not path:
-            return "Default program icon"
-        return os.path.basename(path)
-
     def add_program(self, key, program):
         if self.program_exists_anywhere(program):
             messagebox.showinfo("Auto Audio", "This program rule already exists.")
@@ -4178,12 +4205,14 @@ class AutoAudioApp(ctk.CTk):
             if self.audio_switching:
                 time.sleep(CHECK_INTERVAL_SECONDS)
                 continue
-            current_state = self.sync_last_state_with_current_output(force=False) or self.last_state
+            self.refresh_audio_device_cache_if_stale()
+            current_state = self.sync_last_state_with_current_output(force=True) or self.last_state
             found = self.find_matching_program()
             if found:
                 list_key, program, process_path = found
                 is_new_detection = not self.same_program_rule(self.recent_detected_program, program)
                 self.recent_detected_program = program
+                self.recent_detected_list_key = list_key
                 self.detected_missing_since = None
                 if is_new_detection:
                     logging.info(
@@ -4210,9 +4239,6 @@ class AutoAudioApp(ctk.CTk):
                     self.after(0, lambda p=program, i=icon: self.update_detect_ui(p.get("name", "Unknown"), i))
                 if list_key == "ask_list":
                     self.ask_restore_program = program
-                elif list_key == "auto_list" and is_new_detection and target == "headset" and current_state == "headset":
-                    self.ask_restore_program = program
-                    self.ask_restore_prompt_key = None
 
                 if self.manual_override:
                     pass
@@ -4220,14 +4246,29 @@ class AutoAudioApp(ctk.CTk):
                     if current_state != target:
                         current_state = self.sync_last_state_with_current_output(force=True) or current_state
                     if current_state != target:
-                        self.after(0, lambda p=program: self.show_ask_prompt(p))
+                        if self.is_audio_mode_available(target) and self.can_schedule_ask_prompt(program, target):
+                            self.after(0, lambda p=program: self.show_ask_prompt(p))
+                        elif is_new_detection:
+                            if self.is_audio_mode_available(target):
+                                self.log_once(
+                                    ("ask_prompt_pending", self.program_prompt_key(program, target)),
+                                    "ask prompt schedule skipped because prompt is already active or pending target=%s program=%s",
+                                    target,
+                                    program.get("name"),
+                                )
+                            else:
+                                logging.info("ask prompt skipped offline target=%s device=%s program=%s", target, self.audio_mode_target_name(target), program.get("name"))
                 elif current_state != target:
                     current_state = self.sync_last_state_with_current_output(force=True) or current_state
                     if current_state != target:
-                        self.after(0, lambda t=target: self.show_audio_switching_ui(t))
-                        changed = self.set_audio(target)
-                        self.after(0, lambda t=target, p=program, i=icon, c=changed: self.finish_monitor_audio_switch(t, p.get("name", "Program"), i, c))
+                        if self.is_audio_mode_available(target):
+                            self.after(0, lambda t=target: self.show_audio_switching_ui(t))
+                            changed = self.set_audio(target)
+                            self.after(0, lambda t=target, p=program, i=icon, c=changed: self.finish_monitor_audio_switch(t, p.get("name", "Program"), i, c))
+                        elif is_new_detection:
+                            logging.info("auto switch skipped offline target=%s device=%s program=%s", target, self.audio_mode_target_name(target), program.get("name"))
             else:
+                ended_list_key = self.recent_detected_list_key
                 if self.recent_detected_program:
                     now = time.monotonic()
                     if self.detected_missing_since is None:
@@ -4237,10 +4278,11 @@ class AutoAudioApp(ctk.CTk):
                         continue
                     logging.info("program no longer detected name=%s value=%s", self.recent_detected_program.get("name"), self.recent_detected_program.get("value"))
                     self.recent_detected_program = None
+                    self.recent_detected_list_key = None
                     self.detected_missing_since = None
                 self.pending_prompt_key = None
                 current_state = self.sync_last_state_with_current_output(force=False) or self.last_state
-                if self.should_prompt_ask_restore():
+                if self.should_prompt_ask_restore(current_state):
                     restore_program = self.ask_restore_program
                     restore_target = self.restore_target_for_program(restore_program)
                     restore_prompt_key = self.program_prompt_key(restore_program, restore_target)
@@ -4250,14 +4292,39 @@ class AutoAudioApp(ctk.CTk):
                     time.sleep(CHECK_INTERVAL_SECONDS)
                     continue
 
-                should_restore_speaker = current_state == "headset" and not self.ask_restore_program and (not self.manual_override or self.manual_override_during_detection)
+                auto_exit_restore_speaker = ended_list_key == "auto_list" and current_state == "headset"
+                should_restore_speaker = (
+                    auto_exit_restore_speaker
+                    or (
+                        current_state == "headset"
+                        and not self.ask_restore_program
+                        and (not self.manual_override or self.manual_override_during_detection)
+                    )
+                )
                 if should_restore_speaker:
                     current_state = self.sync_last_state_with_current_output(force=True) or current_state
-                    should_restore_speaker = current_state == "headset" and not self.ask_restore_program and (not self.manual_override or self.manual_override_during_detection)
+                    should_restore_speaker = (
+                        current_state == "headset"
+                        and (
+                            auto_exit_restore_speaker
+                            or (
+                                not self.ask_restore_program
+                                and (not self.manual_override or self.manual_override_during_detection)
+                            )
+                        )
+                    )
                 if should_restore_speaker:
-                    self.after(0, lambda: self.show_audio_switching_ui("speaker"))
-                    changed = self.set_audio("speaker")
-                    self.after(0, lambda c=changed: self.finish_restore_speaker_switch(c))
+                    if auto_exit_restore_speaker:
+                        logging.info("auto program ended; restoring speaker without ask")
+                    if self.is_audio_mode_available("speaker"):
+                        self.after(0, lambda: self.show_audio_switching_ui("speaker"))
+                        changed = self.set_audio("speaker")
+                        self.after(0, lambda c=changed: self.finish_restore_speaker_switch(c))
+                    else:
+                        logging.info("restore speaker skipped offline device=%s", self.audio_mode_target_name("speaker"))
+                        self.manual_override = True
+                        self.manual_override_during_detection = False
+                        self.after(0, lambda state=current_state: self.update_mini_buttons_ui(state))
                 elif self.manual_override_during_detection:
                     self.manual_override = False
                     self.manual_override_during_detection = False
@@ -4308,14 +4375,6 @@ class AutoAudioApp(ctk.CTk):
                         return rule["key"], program, candidate.get("path") or program.get("path")
         return None
 
-    def program_matches(self, candidate, match_type, value):
-        value = value.casefold()
-        if match_type == "path":
-            return os.path.normcase(os.path.abspath(candidate.get("path", ""))) == os.path.normcase(os.path.abspath(value))
-        if match_type == "cmdline":
-            return value in candidate.get("cmdline", "").casefold()
-        return self.normalize_process_name(candidate.get("name", "")) == self.normalize_process_name(value) or self.normalize_process_stem(candidate.get("name", "")) == self.normalize_process_stem(value)
-
     def get_visible_window_titles(self):
         titles = []
 
@@ -4337,23 +4396,57 @@ class AutoAudioApp(ctk.CTk):
     def restore_target_for_program(self, program):
         return "speaker" if program.get("target_audio", "headset") == "headset" else "headset"
 
-    def should_prompt_ask_restore(self):
+    def can_schedule_ask_prompt(self, program, target):
+        prompt_key = self.program_prompt_key(program, target)
+        if self.ask_active or self.pending_prompt_key == prompt_key:
+            return False
+        return True
+
+    def should_prompt_ask_restore(self, current_state=None):
         if self.ask_active:
             return False
         if not self.ask_restore_program:
             return False
-        prompt_key = self.program_prompt_key(self.ask_restore_program, self.restore_target_for_program(self.ask_restore_program))
+        restore_target = self.restore_target_for_program(self.ask_restore_program)
+        if not self.is_audio_mode_available(restore_target):
+            self.log_once(
+                ("ask_restore_offline", self.program_prompt_key(self.ask_restore_program, restore_target)),
+                "ask restore skipped offline target=%s device=%s program=%s",
+                restore_target,
+                self.audio_mode_target_name(restore_target),
+                self.ask_restore_program.get("name"),
+            )
+            self.ask_restore_program = None
+            self.ask_restore_prompt_key = None
+            self.manual_override = True
+            self.manual_override_during_detection = False
+            return False
+        if current_state == restore_target:
+            logging.info(
+                "ask restore skipped because output already at target=%s program=%s",
+                restore_target,
+                self.ask_restore_program.get("name"),
+            )
+            self.ask_restore_program = None
+            self.ask_restore_prompt_key = None
+            return False
+        prompt_key = self.program_prompt_key(self.ask_restore_program, restore_target)
         return self.ask_restore_prompt_key != prompt_key
 
     def show_ask_prompt(self, program, target_override=None, prompt_key_override=None):
         target = target_override or program.get("target_audio", "headset")
         prompt_key = prompt_key_override or self.program_prompt_key(program, target)
         if self.ask_active:
-            logging.info("ask prompt skipped already active target=%s program=%s", target, program.get("name"))
+            self.log_once(
+                ("ask_prompt_already_active", prompt_key),
+                "ask prompt skipped already active target=%s program=%s",
+                target,
+                program.get("name"),
+            )
             return
         self.cancel_audio_change_notification()
         if self.pending_prompt_key == prompt_key:
-            logging.info("ask prompt skipped duplicate key=%s", prompt_key)
+            self.log_once(("ask_prompt_duplicate", prompt_key), "ask prompt skipped duplicate key=%s", prompt_key)
             return
 
         logging.info("ask prompt show target=%s program=%s key=%s", target, program.get("name"), prompt_key)
@@ -4459,6 +4552,7 @@ class AutoAudioApp(ctk.CTk):
 
     def hide_to_tray(self):
         logging.info("hide_to_tray is_mini=%s visible=%s ask=%s notification=%s", self.is_mini, self.winfo_viewable(), self.ask_active, self.notification_active)
+        self.hide_offline_output_tooltip()
         self.mini_pinned_by_user = False
         if self.is_mini and self.winfo_viewable():
             self.animate_mini_out()
@@ -4482,6 +4576,13 @@ class AutoAudioApp(ctk.CTk):
     def quit_app(self, *args):
         logging.info("quit requested")
         self.is_running = False
+        self.hide_offline_output_tooltip()
+        tooltip = self.__dict__.get("offline_tooltip")
+        if tooltip and tooltip.winfo_exists():
+            try:
+                tooltip.destroy()
+            except Exception:
+                pass
         if self.keyboard_event_after_id:
             try:
                 self.after_cancel(self.keyboard_event_after_id)
