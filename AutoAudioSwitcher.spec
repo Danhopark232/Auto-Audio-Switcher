@@ -5,14 +5,31 @@ from PyInstaller.utils.hooks import collect_data_files
 
 block_cipher = None
 
+icon_files = [
+    "NoAppDetected.png",
+    "close.png",
+    "edit.png",
+    "edit_b.png",
+    "gear.png",
+    "gear_b.png",
+    "handle.png",
+    "headset.png",
+    "headset_b.png",
+    "minimize.png",
+    "speaker.png",
+    "speaker_b.png",
+    "trash.png",
+    "trash_b.png",
+]
+
 datas = collect_data_files("customtkinter")
 datas += [
     ("assets/app_icon.png", "assets"),
     ("assets/app_icon.ico", "assets"),
-    ("assets/icons", "assets/icons"),
     ("config.json", "."),
     ("nircmd.exe", "."),
 ]
+datas += [(f"assets/icons/{name}", "assets/icons") for name in icon_files]
 
 a = Analysis(
     ["UIaudio.py"],
@@ -28,7 +45,6 @@ a = Analysis(
         "pystray",
         "PIL",
         "win32gui",
-        "win32process",
         "win32ui",
         "win32con",
     ],
