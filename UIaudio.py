@@ -1148,6 +1148,7 @@ class AutoAudioApp(ctk.CTk):
         self.hotkey_capture_active = False
         self.exe_icon_cache = {}
         self.program_icon_preload_queue = []
+        self.program_icon_load_counter = 0
         self.audio_device_ids = {}
         self.audio_device_id_cache_dirty = False
         self.device_cache_lock = threading.Lock()
@@ -2702,7 +2703,6 @@ class AutoAudioApp(ctk.CTk):
         dropdown_image = self.settings_dropdown_image(selected_device, is_active, width=content_width)
         option_menu = ctk.CTkLabel(frame, text="", image=dropdown_image, width=content_width, height=37, fg_color=SETTINGS_PANEL_BG, bg_color=SETTINGS_PANEL_BG, cursor="hand2")
         option_menu._settings_dropdown_image = dropdown_image
-        hover_state = {"header": False, "dropdown": False}
         dropdown_menu = tk.Menu(
             option_menu,
             tearoff=0,
@@ -2722,8 +2722,8 @@ class AutoAudioApp(ctk.CTk):
             configured = self.is_audio_mode_configured(mode)
             interactive = configured and not self.audio_switching
             active = self.last_state == mode
-            header = self.settings_header_image(mode, title, active, width=current_width, hover=hover_state["header"], disabled=not configured)
-            dropdown = self.settings_dropdown_image(variable.get(), active, width=current_width, hover=hover_state["dropdown"])
+            header = self.settings_header_image(mode, title, active, width=current_width, disabled=not configured)
+            dropdown = self.settings_dropdown_image(variable.get(), active, width=current_width)
             device_button._settings_header_image = header
             option_menu._settings_dropdown_image = dropdown
             device_button.configure(image=header, width=current_width)
@@ -2732,9 +2732,9 @@ class AutoAudioApp(ctk.CTk):
             if interactive:
                 device_button.configure(cursor="hand2")
                 device_button.bind("<Button-1>", lambda event: self.manual_set_audio(mode))
-                device_button.bind("<Enter>", lambda event: set_header_hover(True))
                 device_button.unbind("<Motion>")
-                device_button.bind("<Leave>", lambda event: set_header_hover(False))
+                device_button.unbind("<Enter>")
+                device_button.unbind("<Leave>")
             else:
                 device_button.configure(cursor="arrow")
                 device_button.unbind("<Button-1>")
@@ -2744,16 +2744,6 @@ class AutoAudioApp(ctk.CTk):
             elapsed_ms = int((time.perf_counter() - started_at) * 1000)
             if elapsed_ms >= 20:
                 self.log_settings_event("device_visual_refresh_slow", mode=mode, elapsed_ms=elapsed_ms, active=active, switching=self.audio_switching)
-
-        def set_header_hover(is_hovered):
-            hover_state["header"] = is_hovered
-            if self.last_state != mode and self.is_audio_mode_configured(mode):
-                refresh_visuals()
-
-        def set_dropdown_hover(is_hovered):
-            hover_state["dropdown"] = is_hovered
-            if self.last_state != mode:
-                refresh_visuals()
 
         def open_dropdown(event=None):
             self.log_settings_event("device_dropdown_open", mode=mode, options=len(device_options))
@@ -2767,16 +2757,13 @@ class AutoAudioApp(ctk.CTk):
                 except Exception:
                     pass
 
-        if is_configured:
-            device_button.bind("<Enter>", lambda event: set_header_hover(True))
-            device_button.bind("<Leave>", lambda event: set_header_hover(False))
-        else:
-            device_button.unbind("<Enter>")
-            device_button.unbind("<Motion>")
-            device_button.unbind("<Leave>")
+        device_button.unbind("<Enter>")
+        device_button.unbind("<Motion>")
+        device_button.unbind("<Leave>")
         option_menu.bind("<Button-1>", open_dropdown)
-        option_menu.bind("<Enter>", lambda event: set_dropdown_hover(True))
-        option_menu.bind("<Leave>", lambda event: set_dropdown_hover(False))
+        option_menu.unbind("<Enter>")
+        option_menu.unbind("<Motion>")
+        option_menu.unbind("<Leave>")
         option_menu.pack(fill="x", padx=2, pady=(1, 2))
         def on_device_selection_changed(*_):
             self.log_settings_event("device_selection_changed", mode=mode, value=variable.get())
@@ -2957,6 +2944,7 @@ class AutoAudioApp(ctk.CTk):
 
     def refresh_program_lists(self):
         self.program_list_render_token += 1
+        self.program_icon_load_counter = 0
         if not self.widget_exists(getattr(self, "program_list_frame", None)):
             return
         for widget in self.program_list_frame.winfo_children():
@@ -3012,6 +3000,8 @@ class AutoAudioApp(ctk.CTk):
         icon = self.get_cached_program_icon_if_ready(icon_source, size=PROGRAM_ICON_SIZE)
         icon_label = ctk.CTkLabel(item, text="" if icon else "APP", image=icon, width=38, height=38, fg_color="#272A2F", corner_radius=4, font=("Segoe UI", 9, "bold"))
         icon_label.pack(side="left", padx=(10, 8), pady=6)
+        if not icon and icon_source:
+            self.schedule_program_icon_load(icon_label, icon_source, self.program_list_render_token, size=PROGRAM_ICON_SIZE)
 
         text_box = ctk.CTkFrame(item, fg_color="transparent")
         text_box.pack(side="left", fill="both", expand=True, padx=0, pady=5)
@@ -3065,6 +3055,19 @@ class AutoAudioApp(ctk.CTk):
         icon = self.get_cached_program_icon(path, size=size)
         if self.widget_exists(label) and icon:
             label.configure(image=icon, text="")
+
+    def schedule_program_icon_load(self, label, path, token, size=PROGRAM_ICON_SIZE):
+        if not path or self.get_cached_program_icon_if_ready(path, size=size):
+            return
+        self.program_icon_load_counter += 1
+        delay_ms = min(600, 30 * self.program_icon_load_counter)
+
+        def load_if_current():
+            if token != getattr(self, "program_list_render_token", None) or not self.widget_exists(label):
+                return
+            self.load_program_icon_into_label(label, path, size=size)
+
+        self.after(delay_ms, load_if_current)
 
     def get_cached_program_icon(self, path, size=PROGRAM_ICON_SIZE, source_size=None, corner_radius=0):
         cache_key = self.program_icon_cache_key(path, size, source_size, corner_radius)
