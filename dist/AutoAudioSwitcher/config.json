@@ -59,7 +59,7 @@
     "settings_geometry": "1124x720",
     "output_switch_hotkey": "F23",
     "ask_timeout_seconds": 15,
-    "mini_notification_seconds": 2,
+    "mini_notification_seconds": 5,
     "onboarding_completed": true,
     "language": "en"
 }
