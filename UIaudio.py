@@ -3669,21 +3669,12 @@ class AutoAudioApp(ctk.CTk):
         if not target or target == "No audio device found":
             return target, ""
         with self.device_cache_lock:
-            active_outputs = list(getattr(self, "audio_device_names", []))
             output_ids = dict(getattr(self, "audio_device_ids", {}))
-        if target in active_outputs:
-            return target, output_ids.get(target, "") or self.config_data.get(f"{mode}_id", "")
-
-        active_candidate = self.pick_audio_device(mode, active_outputs, exclude=self.config_data.get("speaker_name" if mode == "headset" else "headset_name"))
-        if active_candidate and self.infer_audio_device_mode(active_candidate) == mode:
-            logging.info("configured %s output is not active; using active candidate target=%s -> %s", mode, target, active_candidate)
-            self.config_data[f"{mode}_name"] = active_candidate
-            candidate_id = output_ids.get(active_candidate, "")
-            if candidate_id:
-                self.config_data[f"{mode}_id"] = candidate_id
-                self.audio_device_id_cache_dirty = True
-            return active_candidate, candidate_id or self.config_data.get(f"{mode}_id", "")
         return target, output_ids.get(target, "") or self.config_data.get(f"{mode}_id", "")
+
+    def is_audio_output_active(self, target):
+        with self.device_cache_lock:
+            return target in getattr(self, "audio_device_names", [])
 
     def update_mini_buttons_ui(self, state):
         if self.audio_switching:
@@ -4046,12 +4037,14 @@ class AutoAudioApp(ctk.CTk):
         self.last_audio_switch_failure_target = None
         self.refresh_audio_device_cache_if_stale(force=True)
         target, device_id = self.resolve_audio_mode_target(mode)
+        target_is_active = self.is_audio_output_active(target)
 
         logging.info(
-            "set_audio begin mode=%s target=%s device_id_known=%s",
+            "set_audio begin mode=%s target=%s device_id_known=%s target_active=%s",
             mode,
             target,
             bool(device_id),
+            target_is_active,
         )
         if not target or target == "No audio device found":
             print(f"audio switch failed: no valid {mode} output device selected")
@@ -4060,6 +4053,9 @@ class AutoAudioApp(ctk.CTk):
             return False
 
         if self.set_audio_with_pycaw(target, device_id):
+            if not target_is_active:
+                logging.info("set_audio accepted offline target via pycaw mode=%s target=%s elapsed_ms=%d", mode, target, int((time.perf_counter() - started_at) * 1000))
+                return True
             if self.verify_audio_switch_target(mode, target, device_id):
                 if self.audio_device_id_cache_dirty:
                     self.audio_device_id_cache_dirty = False
@@ -4069,6 +4065,9 @@ class AutoAudioApp(ctk.CTk):
             logging.warning("pycaw reported success but output verification failed mode=%s target=%s", mode, target)
 
         if self.set_audio_with_nircmd(target):
+            if not target_is_active:
+                logging.info("set_audio accepted offline target via nircmd mode=%s target=%s elapsed_ms=%d", mode, target, int((time.perf_counter() - started_at) * 1000))
+                return True
             if self.verify_audio_switch_target(mode, target, device_id):
                 logging.info("set_audio success via nircmd mode=%s target=%s elapsed_ms=%d", mode, target, int((time.perf_counter() - started_at) * 1000))
                 return True
@@ -5049,9 +5048,6 @@ class AutoAudioApp(ctk.CTk):
                 elif self.manual_override_during_detection:
                     self.manual_override = False
                     self.manual_override_during_detection = False
-                elif self.manual_override:
-                    logging.info("clearing manual override while no program is detected")
-                    self.manual_override = False
                 self.after(0, lambda: self.update_detect_ui(self.tr("no_program_detected"), None))
 
             time.sleep(CHECK_INTERVAL_SECONDS)
