@@ -10,10 +10,11 @@ headset, while the desktop can return to speakers afterward.
 
 ![Mini view preview](assets/readme/mini-view.png)
 
-## Current Version — v1.0.0
+## Current Version — v1.0.1
 
 The current UI version focuses on faster audio switching, a compact mini view,
-and clearer per-program control.
+clearer per-program control, and consistent sizing across Windows resolutions
+and DPI scale settings.
 
 ### Main Features
 
@@ -35,10 +36,12 @@ and clearer per-program control.
 - **Startup option**: the app can be configured to run when Windows starts.
 - **Runtime logs**: logs are saved under `logs/auto_audio_switcher.log` to help
   diagnose intermittent detection, prompt, mini-view, and audio-switch issues.
+- **Resolution-aware layout**: window, canvas, text, and dropdown dimensions use
+  one DPI scale and shrink together when the Windows work area is smaller.
 
 ## Installation
 
-1. Download `AutoAudioSwitcher-v1.0.0-Windows-x64.zip` from GitHub Releases.
+1. Download `AutoAudioSwitcher-v1.0.1-Windows-x64.zip` from GitHub Releases.
 2. Extract the ZIP file completely.
 3. Run `Install_AutoAudioSwitcher.bat`.
 4. Start **Auto Audio Switcher** from the desktop or Start menu shortcut.

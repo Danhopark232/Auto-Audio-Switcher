@@ -7,9 +7,30 @@ import subprocess
 import sys
 import threading
 import time
+import ctypes
+
+
+def enable_windows_dpi_awareness():
+    if sys.platform != "win32":
+        return "not-windows"
+    try:
+        result = ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        if result in (0, -2147024891):  # S_OK or E_ACCESSDENIED (already configured)
+            return "per-monitor"
+    except Exception:
+        pass
+    try:
+        if ctypes.windll.user32.SetProcessDPIAware():
+            return "system"
+    except Exception:
+        pass
+    return "unavailable"
+
+
+WINDOWS_DPI_AWARENESS = enable_windows_dpi_awareness()
+
 import tkinter as tk
 import winreg
-import ctypes
 from ctypes import wintypes
 from logging.handlers import RotatingFileHandler
 from tkinter import filedialog, font, messagebox
@@ -32,7 +53,7 @@ SETTINGS_EVENT_LOG_FILE = os.path.join(LOG_DIR, "settings_events.log")
 APP_ICON_FILE = os.path.join(RESOURCE_DIR, "assets", "app_icon.png")
 APP_ICON_ICO_FILE = os.path.join(RESOURCE_DIR, "assets", "app_icon.ico")
 ICON_DIR = os.path.join(RESOURCE_DIR, "assets", "icons")
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 WINDOWS_APP_ID = "AutoAudioSwitcher.AutoAudioSwitcher"
 SINGLE_INSTANCE_MUTEX_NAME = "Local\\AutoAudioSwitcher.SingleInstance"
 ERROR_ALREADY_EXISTS = 183
@@ -56,6 +77,9 @@ SETTINGS_DEFAULT_WIDTH = 1124
 SETTINGS_DEFAULT_HEIGHT = 655
 SETTINGS_MIN_WIDTH = 1124
 SETTINGS_MIN_HEIGHT = 655
+DISPLAY_FIT_MARGIN_X = 48
+DISPLAY_FIT_MARGIN_Y = 96
+MIN_EFFECTIVE_UI_SCALE = 0.5
 SETTINGS_SAVE_GAP = 10
 SETTINGS_DEVICE_GAP = 12
 SETTINGS_LEFT_WIDTH = 300
@@ -386,6 +410,25 @@ def make_tray_image():
     return make_app_icon_image(64)
 
 
+def calculate_effective_ui_scale(native_scale, work_width, work_height):
+    native_scale = max(MIN_EFFECTIVE_UI_SCALE, float(native_scale or 1.0))
+    usable_width = max(1, int(work_width) - DISPLAY_FIT_MARGIN_X)
+    usable_height = max(1, int(work_height) - DISPLAY_FIT_MARGIN_Y)
+    fit_scale = min(usable_width / SETTINGS_DEFAULT_WIDTH, usable_height / SETTINGS_DEFAULT_HEIGHT)
+    return max(MIN_EFFECTIVE_UI_SCALE, min(native_scale, fit_scale))
+
+
+def centered_scaled_geometry(width, height, scale, work_area):
+    left, top, right, bottom = work_area
+    physical_width = max(1, round(width * scale))
+    physical_height = max(1, round(height * scale))
+    work_width = max(1, right - left)
+    work_height = max(1, bottom - top)
+    x = left + max(0, (work_width - physical_width) // 2)
+    y = top + max(0, (work_height - physical_height) // 2)
+    return f"{width}x{height}+{x}+{y}"
+
+
 def cleanup_expired_logs(now=None):
     if not os.path.isdir(LOG_DIR):
         return 0
@@ -612,17 +655,18 @@ def make_ui_icon(kind, size=28, black=False, inactive_gradient=False):
     return ctk.CTkImage(light_image=image, dark_image=image, size=(size, size))
 
 
-def make_ui_icon_photo(kind, size=28):
+def make_ui_icon_photo(kind, size=28, scale=1.0):
+    scaled_size = max(1, round(size * scale))
     image = load_icon_image(kind)
-    image.thumbnail((size, size), Image.LANCZOS)
-    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    canvas.alpha_composite(image, ((size - image.width) // 2, (size - image.height) // 2))
+    image.thumbnail((scaled_size, scaled_size), Image.LANCZOS)
+    canvas = Image.new("RGBA", (scaled_size, scaled_size), (0, 0, 0, 0))
+    canvas.alpha_composite(image, ((scaled_size - image.width) // 2, (scaled_size - image.height) // 2))
     return ImageTk.PhotoImage(canvas)
 
 
-def ctk_image_to_photo(image, appearance_mode="dark"):
+def ctk_image_to_photo(image, appearance_mode="dark", scale=1.0):
     if isinstance(image, ctk.CTkImage):
-        return image.create_scaled_photo_image(1, appearance_mode)
+        return image.create_scaled_photo_image(scale, appearance_mode)
     return image
 
 
@@ -729,13 +773,15 @@ def create_linear_gradient(width, height, start_hex, end_hex, angle_degrees=91, 
     return image
 
 
-def make_mini_background_image():
-    image = create_linear_gradient(MINI_WIDTH, MINI_HEIGHT, MINI_BG_GRADIENT_START, MINI_BG_GRADIENT_END, angle_degrees=91)
+def make_mini_background_image(scale=1.0):
+    width = max(1, round(MINI_WIDTH * scale))
+    height = max(1, round(MINI_HEIGHT * scale))
+    image = create_linear_gradient(width, height, MINI_BG_GRADIENT_START, MINI_BG_GRADIENT_END, angle_degrees=91)
     return ImageTk.PhotoImage(image)
 
 
-def make_mini_background_slice(width, height, x, y):
-    background = create_linear_gradient(MINI_WIDTH, MINI_HEIGHT, MINI_BG_GRADIENT_START, MINI_BG_GRADIENT_END, angle_degrees=91)
+def make_mini_background_slice(width, height, x, y, scale=1.0):
+    background = create_linear_gradient(max(1, round(MINI_WIDTH * scale)), max(1, round(MINI_HEIGHT * scale)), MINI_BG_GRADIENT_START, MINI_BG_GRADIENT_END, angle_degrees=91)
     image = background.crop((x, y, x + width, y + height))
     return ImageTk.PhotoImage(image)
 
@@ -1107,7 +1153,7 @@ def make_audio_switching_button_image(width=AUDIO_SWITCHING_BUTTON_WIDTH, height
     return ctk.CTkImage(light_image=image, dark_image=image, size=(width, height))
 
 
-def make_ask_button_photo(text, fill_color, width=72, height=42, text_color=(255, 255, 255, 255), bold=False):
+def make_ask_button_photo(text, fill_color, width=72, height=42, text_color=(255, 255, 255, 255), bold=False, scale=1.0):
     if fill_color == ACTIVE_COLOR:
         image = create_css_like_gradient(width, height, ACTIVE_GRADIENT_START, ACTIVE_GRADIENT_END)
     else:
@@ -1124,6 +1170,9 @@ def make_ask_button_photo(text, fill_color, width=72, height=42, text_color=(255
         fill=text_color,
         font=text_font,
     )
+    scaled_size = (max(1, round(width * scale)), max(1, round(height * scale)))
+    if scaled_size != image.size:
+        image = image.resize(scaled_size, Image.LANCZOS)
     return ImageTk.PhotoImage(image)
 
 
@@ -1223,6 +1272,7 @@ def make_ask_before_change_preview_image(width=468, height=118):
 class AutoAudioApp(ctk.CTk):
     def __init__(self, start_mode="tray"):
         super().__init__()
+        self.configure_display_scaling()
         logging.info("AutoAudioApp init start_mode=%s", start_mode)
 
         ctk.set_appearance_mode("dark")
@@ -1578,7 +1628,7 @@ class AutoAudioApp(ctk.CTk):
         config = self.default_config()
         if os.path.exists(CONFIG_FILE):
             try:
-                with open(CONFIG_FILE, "r", encoding="utf-8") as file:
+                with open(CONFIG_FILE, "r", encoding="utf-8-sig") as file:
                     loaded = json.load(file)
                 if isinstance(loaded, dict):
                     config.update(loaded)
@@ -1732,6 +1782,44 @@ class AutoAudioApp(ctk.CTk):
         if self.is_running:
             self.log_cleanup_after_id = self.after(LOG_CLEANUP_INTERVAL_MS, self.schedule_log_cleanup)
 
+    def configure_display_scaling(self):
+        left, top, right, bottom = self.get_work_area()
+        native_scale = max(MIN_EFFECTIVE_UI_SCALE, float(self._get_window_scaling() or 1.0))
+        effective_scale = calculate_effective_ui_scale(native_scale, right - left, bottom - top)
+        scale_multiplier = effective_scale / native_scale
+        ctk.set_widget_scaling(scale_multiplier)
+        ctk.set_window_scaling(scale_multiplier)
+        self.effective_ui_scale = max(MIN_EFFECTIVE_UI_SCALE, float(self._get_window_scaling() or effective_scale))
+        logging.info(
+            "display scaling configured awareness=%s native_scale=%.3f effective_scale=%.3f multiplier=%.3f work_area=%sx%s",
+            WINDOWS_DPI_AWARENESS,
+            native_scale,
+            self.effective_ui_scale,
+            scale_multiplier,
+            right - left,
+            bottom - top,
+        )
+
+    def ui_pixel_scale(self):
+        return max(MIN_EFFECTIVE_UI_SCALE, float(getattr(self, "effective_ui_scale", 1.0)))
+
+    def scaled_ui_px(self, value):
+        return max(1, round(float(value) * self.ui_pixel_scale()))
+
+    def canvas_font(self, size, bold=False, family=None):
+        font_family = family or self.ui_font_family()
+        font_size = -self.scaled_ui_px(size)
+        return (font_family, font_size, "bold") if bold else (font_family, font_size)
+
+    def logical_widget_width(self, widget, fallback):
+        try:
+            physical_width = widget.winfo_width()
+            if physical_width > 1:
+                return max(1, round(physical_width / self.ui_pixel_scale()))
+        except Exception:
+            pass
+        return int(fallback)
+
     def apply_window_icon(self, window=None):
         window = window or self
         try:
@@ -1778,8 +1866,10 @@ class AutoAudioApp(ctk.CTk):
     def get_mini_geometry_parts(self, extra_height=0, y_offset=0):
         left, top, right, bottom = self.get_work_area()
         height = MINI_HEIGHT + extra_height
-        x = max(left, right - MINI_WIDTH)
-        y = max(top, bottom - height + y_offset)
+        physical_width = round(MINI_WIDTH * self.ui_pixel_scale())
+        physical_height = round(height * self.ui_pixel_scale())
+        x = max(left, right - physical_width)
+        y = max(top, bottom - physical_height + y_offset)
         return MINI_WIDTH, height, x, y
 
     def get_mini_hidden_y(self):
@@ -1896,18 +1986,14 @@ class AutoAudioApp(ctk.CTk):
         self.geometry(self.center_settings_geometry_string(width, height))
 
     def center_settings_geometry_string(self, width, height):
-        left, top, right, bottom = self.get_work_area()
-        work_width = max(width, right - left)
-        work_height = max(height, bottom - top)
-        x = max(left, left + (work_width - width) // 2)
-        y = max(top, top + (work_height - height) // 2)
-        return f"{width}x{height}+{x}+{y}"
+        return centered_scaled_geometry(width, height, self.ui_pixel_scale(), self.get_work_area())
 
     def remember_settings_geometry(self):
         if not self.is_mini:
             self.update_idletasks()
-            width = max(SETTINGS_MIN_WIDTH, self.winfo_width())
-            height = max(SETTINGS_MIN_HEIGHT, self.winfo_height())
+            scale = self.ui_pixel_scale()
+            width = max(SETTINGS_MIN_WIDTH, round(self.winfo_width() / scale))
+            height = max(SETTINGS_MIN_HEIGHT, round(self.winfo_height() / scale))
             self.config_data["settings_geometry"] = f"{width}x{height}"
 
     def get_window_frame_handle(self, window=None):
@@ -1986,16 +2072,14 @@ class AutoAudioApp(ctk.CTk):
         parent_height = self.winfo_height() if self.winfo_height() > 1 else self.winfo_screenheight()
         parent_x = self.winfo_x() if self.winfo_viewable() else 0
         parent_y = self.winfo_y() if self.winfo_viewable() else 0
-        x = parent_x + max(0, (parent_width - width) // 2)
-        y = parent_y + max(0, (parent_height - height) // 2)
+        physical_width = round(width * self.ui_pixel_scale())
+        physical_height = round(height * self.ui_pixel_scale())
+        x = parent_x + max(0, (parent_width - physical_width) // 2)
+        y = parent_y + max(0, (parent_height - physical_height) // 2)
         return f"{width}x{height}+{x}+{y}"
 
     def center_screen_geometry(self, width, height):
-        screen_width = self.winfo_screenwidth()
-        screen_height = self.winfo_screenheight()
-        x = max(0, (screen_width - width) // 2)
-        y = max(0, (screen_height - height) // 2)
-        return f"{width}x{height}+{x}+{y}"
+        return centered_scaled_geometry(width, height, self.ui_pixel_scale(), self.get_work_area())
 
     def bind_popup_drag(self, window, handle):
         drag = {"x": 0, "y": 0}
@@ -2274,14 +2358,20 @@ class AutoAudioApp(ctk.CTk):
             self.draw_settings_ui()
 
     def create_marquee_label(self, parent, text, font_tuple, text_color, bg_color, height, bg_origin=None):
-        canvas = tk.Canvas(parent, height=height, width=1, bg=bg_color, bd=0, highlightthickness=0, relief="flat")
+        scale = self.ui_pixel_scale()
+        scaled_height = max(1, round(height * scale))
+        font_size = abs(int(font_tuple[1])) if len(font_tuple) > 1 else 11
+        scaled_font = (font_tuple[0], -max(1, round(font_size * scale)), *font_tuple[2:])
+        scaled_origin = tuple(round(value * scale) for value in bg_origin) if bg_origin else None
+        canvas = tk.Canvas(parent, height=scaled_height, width=1, bg=bg_color, bd=0, highlightthickness=0, relief="flat")
         canvas._marquee_config = {
             "text": text or "",
-            "font": font_tuple,
+            "font": scaled_font,
             "text_color": text_color,
             "bg_color": bg_color,
-            "bg_origin": bg_origin,
-            "height": height,
+            "bg_origin": scaled_origin,
+            "height": scaled_height,
+            "scale": scale,
             "offset": 0,
             "direction": 1,
             "pause": MARQUEE_EDGE_PAUSE_TICKS,
@@ -2324,13 +2414,14 @@ class AutoAudioApp(ctk.CTk):
                 return
             if config.get("bg_origin"):
                 bg_x, bg_y = config["bg_origin"]
-                photo = make_mini_background_slice(width, height, bg_x, bg_y)
+                photo = make_mini_background_slice(width, height, bg_x, bg_y, config.get("scale", 1.0))
                 canvas._marquee_bg_photo = photo
                 canvas.create_image(0, 0, image=photo, anchor="nw")
 
             text_font = config["font"]
             text_width = self.measure_text(text, text_font)
-            max_offset = max(0, text_width - width + MARQUEE_FADE_WIDTH)
+            fade_width = max(1, round(MARQUEE_FADE_WIDTH * config.get("scale", 1.0)))
+            max_offset = max(0, text_width - width + fade_width)
             offset = min(config["offset"], max_offset)
             config["offset"] = offset
             canvas.create_text(
@@ -2356,7 +2447,8 @@ class AutoAudioApp(ctk.CTk):
                 return
             config = canvas._marquee_config
             width = canvas.winfo_width()
-            max_offset = max(0, self.measure_text(config["text"], config["font"]) - width + MARQUEE_FADE_WIDTH)
+            fade_width = max(1, round(MARQUEE_FADE_WIDTH * config.get("scale", 1.0)))
+            max_offset = max(0, self.measure_text(config["text"], config["font"]) - width + fade_width)
             if max_offset <= 0:
                 self.render_marquee(canvas)
                 return
@@ -2364,7 +2456,7 @@ class AutoAudioApp(ctk.CTk):
             if config["pause"] > 0:
                 config["pause"] -= 1
             else:
-                config["offset"] += config["direction"] * MARQUEE_STEP_PX
+                config["offset"] += config["direction"] * max(1, round(MARQUEE_STEP_PX * config.get("scale", 1.0)))
                 if config["offset"] >= max_offset:
                     config["offset"] = max_offset
                     config["direction"] = -1
@@ -2399,17 +2491,19 @@ class AutoAudioApp(ctk.CTk):
             return
         display_name = name or self.tr("no_program_detected")
         display_icon = icon or self.icons.get("no_app")
-        font_tuple = (self.ui_font_family(), 17, "bold")
-        max_text_width = max(40, MINI_WIDTH - 76 - 168 - 30)
+        scale = self.ui_pixel_scale()
+        font_tuple = self.canvas_font(17, bold=True)
+        max_text_width = max(self.scaled_ui_px(40), round((MINI_WIDTH - 76 - 168 - 30) * scale))
         self.mini_canvas.itemconfigure(self.mini_name_item, text=self.fit_text_to_width(display_name, font_tuple, max_text_width))
-        self.mini_detected_photo = ctk_image_to_photo(display_icon)
+        self.mini_detected_photo = ctk_image_to_photo(display_icon, scale=scale)
         self.mini_canvas.itemconfigure(self.mini_icon_item, image=self.mini_detected_photo)
 
     def draw_marquee_fade(self, canvas, bg_color, width, height, bg_origin=None):
-        fade_width = min(MARQUEE_FADE_WIDTH, max(1, width))
+        scale = canvas._marquee_config.get("scale", 1.0) if hasattr(canvas, "_marquee_config") else 1.0
+        fade_width = min(max(1, round(MARQUEE_FADE_WIDTH * scale)), max(1, width))
         if bg_origin:
             bg_x, bg_y = bg_origin
-            background = create_linear_gradient(MINI_WIDTH, MINI_HEIGHT, MINI_BG_GRADIENT_START, MINI_BG_GRADIENT_END, angle_degrees=91)
+            background = create_linear_gradient(max(1, round(MINI_WIDTH * scale)), max(1, round(MINI_HEIGHT * scale)), MINI_BG_GRADIENT_START, MINI_BG_GRADIENT_END, angle_degrees=91)
             image = background.crop((bg_x + width - fade_width, bg_y, bg_x + width, bg_y + height)).convert("RGBA")
             alpha_mask = Image.new("L", (fade_width, height), 0)
             mask_draw = ImageDraw.Draw(alpha_mask)
@@ -2436,16 +2530,18 @@ class AutoAudioApp(ctk.CTk):
             self.draw_ask_mini_ui()
             return
 
-        mini_canvas = tk.Canvas(self, width=MINI_WIDTH, height=MINI_HEIGHT, highlightthickness=0, bd=0, bg=MINI_BG_FALLBACK)
+        scale = self.ui_pixel_scale()
+        px = lambda value: max(1, round(value * scale))
+        mini_canvas = tk.Canvas(self, width=px(MINI_WIDTH), height=px(MINI_HEIGHT), highlightthickness=0, bd=0, bg=MINI_BG_FALLBACK)
         self.mini_canvas = mini_canvas
         mini_canvas.pack(fill="both", expand=True)
-        self.mini_bg_photo = make_mini_background_image()
+        self.mini_bg_photo = make_mini_background_image(scale)
         mini_canvas.create_image(0, 0, image=self.mini_bg_photo, anchor="nw")
         mini_canvas.bind("<ButtonPress-1>", self.start_move)
         mini_canvas.bind("<B1-Motion>", self.do_move)
 
         header = ctk.CTkFrame(mini_canvas, fg_color="transparent", height=28, corner_radius=0)
-        mini_canvas.create_window(0, 0, window=header, anchor="nw", width=MINI_WIDTH, height=28)
+        mini_canvas.create_window(0, 0, window=header, anchor="nw", width=px(MINI_WIDTH), height=px(28))
         header.pack_propagate(False)
         header.bind("<ButtonPress-1>", self.start_move)
         header.bind("<B1-Motion>", self.do_move)
@@ -2456,14 +2552,14 @@ class AutoAudioApp(ctk.CTk):
         ctk.CTkButton(header, text="", image=self.icons["minimize"], width=28, height=24, fg_color="transparent", hover_color="#333333", command=self.hide_to_tray).pack(side="right", padx=2)
         ctk.CTkButton(header, text="", image=self.icons["gear"], width=34, height=24, fg_color="transparent", hover_color="#333333", command=lambda: self.switch_mode("settings")).pack(side="right", padx=4)
 
-        self.mini_detected_photo = ctk_image_to_photo(self.current_detected_icon)
-        self.mini_icon_item = mini_canvas.create_image(38, 62, image=self.mini_detected_photo)
-        self.mini_name_item = mini_canvas.create_text(76, 62, text="", fill="white", font=("Segoe UI", 17, "bold"), anchor="w")
+        self.mini_detected_photo = ctk_image_to_photo(self.current_detected_icon, scale=scale)
+        self.mini_icon_item = mini_canvas.create_image(px(38), px(62), image=self.mini_detected_photo)
+        self.mini_name_item = mini_canvas.create_text(px(76), px(62), text="", fill="white", font=self.canvas_font(17, bold=True, family="Segoe UI"), anchor="w")
         self.update_mini_detect_canvas(self.current_detected_name, self.current_detected_icon)
 
         button_frame = ctk.CTkFrame(mini_canvas, fg_color="transparent", bg_color="transparent")
         self.mini_button_frame = button_frame
-        mini_canvas.create_window(MINI_WIDTH - 12, 62, window=button_frame, anchor="e", width=(MINI_DEVICE_BUTTON_WIDTH * 2) + MINI_DEVICE_BUTTON_GAP, height=MINI_DEVICE_BUTTON_HEIGHT)
+        mini_canvas.create_window(px(MINI_WIDTH - 12), px(62), window=button_frame, anchor="e", width=px((MINI_DEVICE_BUTTON_WIDTH * 2) + MINI_DEVICE_BUTTON_GAP), height=px(MINI_DEVICE_BUTTON_HEIGHT))
 
         self.speaker_btn = ctk.CTkLabel(button_frame, text="", image=self.mini_button_images["speaker_inactive"], width=MINI_DEVICE_BUTTON_WIDTH, height=MINI_DEVICE_BUTTON_HEIGHT)
         self.speaker_btn.bind("<Button-1>", lambda event: self.manual_set_audio("speaker"))
@@ -2479,26 +2575,28 @@ class AutoAudioApp(ctk.CTk):
 
     def draw_ask_mini_ui(self):
         self.configure(fg_color=MINI_BG_FALLBACK)
+        scale = self.ui_pixel_scale()
+        px = lambda value: max(1, round(value * scale))
         target = self.ask_target or "headset"
         program_name = self.ask_program.get("name", "Program") if self.ask_program else "Program"
 
-        mini_canvas = tk.Canvas(self, width=MINI_WIDTH, height=MINI_HEIGHT, highlightthickness=0, bd=0, bg=MINI_BG_FALLBACK)
+        mini_canvas = tk.Canvas(self, width=px(MINI_WIDTH), height=px(MINI_HEIGHT), highlightthickness=0, bd=0, bg=MINI_BG_FALLBACK)
         mini_canvas.pack(fill="both", expand=True)
-        self.ask_mini_bg_photo = make_mini_background_image()
+        self.ask_mini_bg_photo = make_mini_background_image(scale)
         mini_canvas.create_image(0, 0, image=self.ask_mini_bg_photo, anchor="nw")
         mini_canvas.bind("<ButtonPress-1>", self.start_move)
         mini_canvas.bind("<B1-Motion>", self.do_move)
 
-        self.ask_icon_photo = make_ui_icon_photo(target, 28)
-        mini_canvas.create_image(91, 47, image=self.ask_icon_photo)
-        mini_canvas.create_text(117, 32, text=self.tr("switch_to", mode=self.audio_label(target)), fill="white", font=(self.ui_font_family(), 15, "bold"), anchor="w")
+        self.ask_icon_photo = make_ui_icon_photo(target, 28, scale=scale)
+        mini_canvas.create_image(px(91), px(47), image=self.ask_icon_photo)
+        mini_canvas.create_text(px(117), px(32), text=self.tr("switch_to", mode=self.audio_label(target)), fill="white", font=self.canvas_font(15, bold=True), anchor="w")
         self.ask_label_canvas = mini_canvas
-        self.ask_label_item = mini_canvas.create_text(117, 62, text=program_name, fill="#B8B8B8", font=("Segoe UI", 11), anchor="w")
+        self.ask_label_item = mini_canvas.create_text(px(117), px(62), text=program_name, fill="#B8B8B8", font=self.canvas_font(11, family="Segoe UI"), anchor="w")
 
-        self.ask_yes_button_photo = make_ask_button_photo(self.tr("yes"), ACTIVE_COLOR, text_color=(255, 255, 255, 255), bold=True)
-        self.ask_no_button_photo = make_ask_button_photo(self.tr("no"), "#444444")
-        yes_button = mini_canvas.create_image(355, 49, image=self.ask_yes_button_photo)
-        no_button = mini_canvas.create_image(433, 49, image=self.ask_no_button_photo)
+        self.ask_yes_button_photo = make_ask_button_photo(self.tr("yes"), ACTIVE_COLOR, text_color=(255, 255, 255, 255), bold=True, scale=scale)
+        self.ask_no_button_photo = make_ask_button_photo(self.tr("no"), "#444444", scale=scale)
+        yes_button = mini_canvas.create_image(px(355), px(49), image=self.ask_yes_button_photo)
+        no_button = mini_canvas.create_image(px(433), px(49), image=self.ask_no_button_photo)
         mini_canvas.tag_bind(yes_button, "<Button-1>", lambda event: self.accept_ask_prompt(target))
         mini_canvas.tag_bind(no_button, "<Button-1>", lambda event: self.dismiss_ask_prompt(immediate=True))
 
@@ -2877,7 +2975,7 @@ class AutoAudioApp(ctk.CTk):
             if not self.widget_exists(frame) or not self.widget_exists(device_button) or not self.widget_exists(option_menu):
                 return
             started_at = time.perf_counter()
-            current_width = max(120, (frame.winfo_width() or header_width) - 4)
+            current_width = max(120, self.logical_widget_width(frame, header_width) - 4)
             configured = self.is_audio_mode_configured(mode)
             interactive = configured and not self.audio_switching
             active = self.last_state == mode
@@ -3029,7 +3127,7 @@ class AutoAudioApp(ctk.CTk):
     def open_hotkey_capture(self, variable):
         capture = ctk.CTkToplevel(self)
         capture.title("Detect Hotkey")
-        capture.geometry("320x140+800+340")
+        capture.geometry(self.center_child_geometry(320, 140))
         capture.transient(self)
         capture.grab_set()
         capture.configure(fg_color="#171717")
@@ -3549,9 +3647,11 @@ class AutoAudioApp(ctk.CTk):
             anchor.update_idletasks()
         except Exception:
             pass
-        content_width = max(1, int(width or anchor.winfo_width() or SETTINGS_DEVICE_WIDTH))
+        scale = self.ui_pixel_scale()
+        content_width = max(1, int(width or anchor.winfo_width() or round(SETTINGS_DEVICE_WIDTH * scale)))
         visible_count = max(1, min(len(options), max_visible))
-        content_height = row_height * visible_count
+        scaled_row_height = max(1, round(row_height * scale))
+        content_height = scaled_row_height * visible_count
         popup_width = content_width
         popup_height = content_height
         popup = tk.Toplevel(self)
@@ -3564,6 +3664,10 @@ class AutoAudioApp(ctk.CTk):
             pass
         x = anchor.winfo_rootx()
         y = anchor.winfo_rooty() + anchor.winfo_height()
+        left, top, right, bottom = self.get_work_area()
+        x = max(left, min(x, right - popup_width))
+        if y + popup_height > bottom:
+            y = max(top, anchor.winfo_rooty() - popup_height)
         popup.geometry(f"{popup_width}x{popup_height}+{x}+{y}")
         self.log_settings_event("dropdown_popup_show", width=content_width, height=content_height, x=x, y=y, options=len(options))
         canvas = tk.Canvas(
@@ -3577,7 +3681,6 @@ class AutoAudioApp(ctk.CTk):
         )
         canvas.pack(fill="both", expand=True)
         state = {"offset": 0, "hover": None}
-        font_value = (self.ui_font_family(), 11)
 
         def build_dropdown_background():
             radius = 8
@@ -3589,8 +3692,8 @@ class AutoAudioApp(ctk.CTk):
                 index = state["offset"] + row
                 if index >= len(options):
                     break
-                top = row * row_height
-                bottom = top + row_height
+                top = row * scaled_row_height
+                bottom = top + scaled_row_height
                 fill = CONTROL_HOVER if state["hover"] == index else CONTROL_BG
                 rows_draw.rectangle((0, top, content_width, bottom), fill=hex_to_rgb(fill))
 
@@ -3610,8 +3713,8 @@ class AutoAudioApp(ctk.CTk):
                 index = state["offset"] + row
                 if index >= len(options):
                     break
-                top = row * row_height
-                canvas.create_text(10, top + row_height / 2, text=str(options[index]), fill="white", font=font_value, anchor="w")
+                top = row * scaled_row_height
+                canvas.create_text(max(1, round(10 * scale)), top + scaled_row_height / 2, text=str(options[index]), fill="white", font=self.canvas_font(11), anchor="w")
             if len(options) > visible_count:
                 track_height = max(12, int(content_height * visible_count / len(options)))
                 max_offset = max(1, len(options) - visible_count)
@@ -3622,7 +3725,7 @@ class AutoAudioApp(ctk.CTk):
             if event.x < 0 or event.y < 0 or event.x >= content_width or event.y >= content_height:
                 self.close_settings_dropdown()
                 return "break"
-            index = state["offset"] + int(event.y // row_height)
+            index = state["offset"] + int(event.y // scaled_row_height)
             if 0 <= index < len(options):
                 value = options[index]
                 self.close_settings_dropdown()
@@ -3633,7 +3736,7 @@ class AutoAudioApp(ctk.CTk):
             if event.x < 0 or event.y < 0 or event.x >= content_width or event.y >= content_height:
                 index = None
             else:
-                index = state["offset"] + int(event.y // row_height)
+                index = state["offset"] + int(event.y // scaled_row_height)
             if index != state["hover"]:
                 state["hover"] = index if index is not None and 0 <= index < len(options) else None
                 redraw()
@@ -3680,7 +3783,7 @@ class AutoAudioApp(ctk.CTk):
         label = ctk.CTkLabel(parent, text="", width=width, height=height, fg_color=SETTINGS_PANEL_BG, bg_color=SETTINGS_PANEL_BG, cursor="hand2")
 
         def refresh(*_):
-            current_width = max(width, label.winfo_width() or width)
+            current_width = max(width, self.logical_widget_width(label, width))
             image = make_settings_dropdown_segment_image(
                 variable.get(),
                 current_width,
@@ -3712,6 +3815,8 @@ class AutoAudioApp(ctk.CTk):
         frame = ctk.CTkFrame(parent, width=width, height=height, fg_color="transparent", bg_color=SETTINGS_PANEL_BG, corner_radius=0)
         frame.pack_propagate(False)
         arrow_width = height
+        scale = self.ui_pixel_scale()
+        px = lambda value: max(1, round(value * scale))
         background = ctk.CTkLabel(frame, text="", width=width, height=height, fg_color=SETTINGS_PANEL_BG, bg_color=SETTINGS_PANEL_BG)
         background.place(x=0, y=0, relwidth=1, relheight=1)
         entry = tk.Entry(
@@ -3724,13 +3829,13 @@ class AutoAudioApp(ctk.CTk):
             insertbackground="white",
             selectbackground=ACTIVE_COLOR,
             selectforeground="white",
-            font=(self.ui_font_family(), 13),
+            font=self.canvas_font(13),
         )
-        entry.place(x=10, y=1, width=max(40, width - arrow_width - 12), height=max(1, height - 2))
+        entry.place(x=px(10), y=px(1), width=px(max(40, width - arrow_width - 12)), height=px(max(1, height - 2)))
         background.configure(cursor="hand2")
 
         def refresh(*_):
-            current_width = max(width, frame.winfo_width() or width)
+            current_width = max(width, self.logical_widget_width(frame, width))
             image = make_settings_dropdown_segment_image(
                 "",
                 current_width,
@@ -3744,7 +3849,7 @@ class AutoAudioApp(ctk.CTk):
             frame._settings_dropdown_image = image
             background.configure(image=image, width=current_width, height=height)
             background.image = image
-            entry.place_configure(width=max(40, current_width - arrow_width - 12), height=max(1, height - 2))
+            entry.place_configure(width=px(max(40, current_width - arrow_width - 12)), height=px(max(1, height - 2)))
 
         def normalize_value():
             if formatter:
@@ -3763,8 +3868,8 @@ class AutoAudioApp(ctk.CTk):
             return "break"
 
         def on_background_click(event):
-            current_width = max(width, frame.winfo_width() or width)
-            if event.x >= current_width - arrow_width:
+            current_width = max(width, self.logical_widget_width(frame, width))
+            if event.x >= px(current_width - arrow_width):
                 return open_dropdown(event)
             entry.focus_set()
             return "break"
@@ -4706,7 +4811,7 @@ class AutoAudioApp(ctk.CTk):
     def open_running_program_picker(self, key):
         picker = ctk.CTkToplevel(self)
         picker.title("Add Running Program")
-        picker.geometry("680x560+620+160")
+        picker.geometry(self.center_child_geometry(680, 560))
         picker.transient(self)
         picker.configure(fg_color=WINDOW_BG)
         self.apply_window_icon(picker)

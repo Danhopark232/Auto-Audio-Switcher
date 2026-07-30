@@ -79,6 +79,7 @@ exe = EXE(
     entitlements_file=None,
     icon="assets/app_icon.ico",
     version="version_info.txt",
+    manifest="app.manifest",
     exclude_binaries=True,
 )
 
