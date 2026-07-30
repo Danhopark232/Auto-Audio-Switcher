@@ -1,5 +1,8 @@
 # Auto Audio Switcher
 
+> This project's code was created with OpenAI Codex.
+> 이 프로젝트의 코딩은 OpenAI Codex를 활용하여 제작되었습니다.
+
 Auto Audio Switcher is a Windows desktop utility that switches the default audio
 output between a speaker device and a headset device based on the programs you
 run. It is designed for game-focused workflows where some apps should use a
@@ -7,7 +10,7 @@ headset, while the desktop can return to speakers afterward.
 
 ![Mini view preview](assets/readme/mini-view.png)
 
-## Current Version
+## Current Version — v1.0.0
 
 The current UI version focuses on faster audio switching, a compact mini view,
 and clearer per-program control.
@@ -32,6 +35,21 @@ and clearer per-program control.
 - **Startup option**: the app can be configured to run when Windows starts.
 - **Runtime logs**: logs are saved under `logs/auto_audio_switcher.log` to help
   diagnose intermittent detection, prompt, mini-view, and audio-switch issues.
+
+## Installation
+
+1. Download `AutoAudioSwitcher-v1.0.0-Windows-x64.zip` from GitHub Releases.
+2. Extract the ZIP file completely.
+3. Run `Install_AutoAudioSwitcher.bat`.
+4. Start **Auto Audio Switcher** from the desktop or Start menu shortcut.
+
+The installer places the app under `%LOCALAPPDATA%\AutoAudioSwitcher` by
+default and preserves existing settings when upgrading. The distribution
+already contains the Python runtime and required native libraries, so users do
+not need to install Python, pip packages, or Visual Studio separately.
+
+The extracted `AutoAudioSwitcher` folder can also be used as a portable build
+by running `AutoAudioSwitcher.exe` directly.
 
 ## Feature Highlights
 
@@ -73,8 +91,25 @@ settings window.
 ## Requirements
 
 - Windows 10 or Windows 11
-- Packaged EXE build for normal users
+- 64-bit Windows
+- Packaged EXE build for normal users; Python is bundled
 - Python environment only when running from source
+
+## Diagnostic Logs
+
+Runtime logs are stored in the app's `logs` folder:
+
+- `auto_audio_switcher.log`: device detection, switching, prompts, and failures
+- `settings_events.log`: compact settings-window interaction timings
+
+Logs rotate automatically to keep disk use bounded. Runtime logs use up to
+approximately 3 MB, settings logs use up to approximately 0.75 MB, and rotated
+logs older than 14 days are removed. Cleanup runs at startup and every six
+hours, so logging does not require a polling thread or continuous disk scans.
+
+When reporting a problem, include the approximate time it happened and attach
+the current log files. Logs can contain local device, program, and filesystem
+names, so review them before posting publicly.
 
 ## Notes
 

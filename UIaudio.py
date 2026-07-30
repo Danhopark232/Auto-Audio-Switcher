@@ -32,6 +32,7 @@ SETTINGS_EVENT_LOG_FILE = os.path.join(LOG_DIR, "settings_events.log")
 APP_ICON_FILE = os.path.join(RESOURCE_DIR, "assets", "app_icon.png")
 APP_ICON_ICO_FILE = os.path.join(RESOURCE_DIR, "assets", "app_icon.ico")
 ICON_DIR = os.path.join(RESOURCE_DIR, "assets", "icons")
+APP_VERSION = "1.0.0"
 WINDOWS_APP_ID = "AutoAudioSwitcher.AutoAudioSwitcher"
 SINGLE_INSTANCE_MUTEX_NAME = "Local\\AutoAudioSwitcher.SingleInstance"
 ERROR_ALREADY_EXISTS = 183
@@ -52,9 +53,9 @@ MINI_HEIGHT = 94
 MINI_ANIMATION_STEPS = 18
 MINI_ANIMATION_INTERVAL_MS = 10
 SETTINGS_DEFAULT_WIDTH = 1124
-SETTINGS_DEFAULT_HEIGHT = 720
+SETTINGS_DEFAULT_HEIGHT = 655
 SETTINGS_MIN_WIDTH = 1124
-SETTINGS_MIN_HEIGHT = 720
+SETTINGS_MIN_HEIGHT = 655
 SETTINGS_SAVE_GAP = 10
 SETTINGS_DEVICE_GAP = 12
 SETTINGS_LEFT_WIDTH = 300
@@ -97,6 +98,12 @@ RUNNING_PROGRAM_CPU_SAMPLE_SECONDS = 0.25
 MIN_RUNNING_PROGRAM_CPU_PERCENT = 0.5
 MIN_RUNNING_PROGRAM_MEMORY_MB = 50
 CPU_CORE_COUNT = max(1, psutil.cpu_count(logical=True) or 1)
+LOG_RETENTION_DAYS = 14
+LOG_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000
+MAIN_LOG_MAX_BYTES = 750_000
+MAIN_LOG_BACKUP_COUNT = 3
+SETTINGS_LOG_MAX_BYTES = 250_000
+SETTINGS_LOG_BACKUP_COUNT = 2
 IGNORED_RUNNING_PROGRAM_NAMES = {
     "idle",
     "system idle process",
@@ -240,6 +247,35 @@ class KBDLLHOOKSTRUCT(ctypes.Structure):
     ]
 
 
+class SHFILEINFOW(ctypes.Structure):
+    _fields_ = [
+        ("hIcon", wintypes.HICON),
+        ("iIcon", ctypes.c_int),
+        ("dwAttributes", wintypes.DWORD),
+        ("szDisplayName", wintypes.WCHAR * 260),
+        ("szTypeName", wintypes.WCHAR * 80),
+    ]
+
+
+def get_shell_file_icon(path, large=True):
+    if not path:
+        return None
+    shell_info = SHFILEINFOW()
+    flags = 0x000000100 | (0x000000000 if large else 0x000000001)  # SHGFI_ICON | size
+    attributes = 0
+    if not os.path.exists(path):
+        flags |= 0x000000010  # SHGFI_USEFILEATTRIBUTES
+        attributes = 0x00000080  # FILE_ATTRIBUTE_NORMAL
+    result = ctypes.windll.shell32.SHGetFileInfoW(
+        path,
+        attributes,
+        ctypes.byref(shell_info),
+        ctypes.sizeof(shell_info),
+        flags,
+    )
+    return shell_info.hIcon if result and shell_info.hIcon else None
+
+
 def apply_rounded_corners(image, radius):
     if radius <= 0:
         return image
@@ -252,15 +288,25 @@ def apply_rounded_corners(image, radius):
     return image
 
 
-def get_icon_from_exe(exe_path, size=32, source_size=None, corner_radius=0):
+def get_icon_from_exe(exe_path, size=32, source_size=None, corner_radius=0, use_shell_fallback=True):
+    extracted_icons = []
+    shell_icon = None
     try:
-        if not exe_path or not os.path.exists(exe_path):
+        if not exe_path:
             return None
 
         source_size = max(source_size or size, size)
-        large_icons, small_icons = win32gui.ExtractIconEx(exe_path, 0)
+        large_icons = []
+        small_icons = []
+        if os.path.exists(exe_path):
+            large_icons, small_icons = win32gui.ExtractIconEx(exe_path, 0)
+            extracted_icons = list(large_icons) + list(small_icons)
         icons = (large_icons or small_icons) if size >= 32 else (small_icons or large_icons)
-        if not icons:
+        icon_handle = icons[0] if icons else None
+        if not icon_handle and use_shell_fallback:
+            shell_icon = get_shell_file_icon(exe_path, large=size >= 32)
+            icon_handle = shell_icon
+        if not icon_handle:
             return None
 
         hdc = win32ui.CreateDCFromHandle(win32gui.GetDC(0))
@@ -269,9 +315,7 @@ def get_icon_from_exe(exe_path, size=32, source_size=None, corner_radius=0):
         memory_dc = hdc.CreateCompatibleDC()
         memory_dc.SelectObject(bitmap)
 
-        win32gui.DrawIconEx(memory_dc.GetSafeHdc(), 0, 0, icons[0], source_size, source_size, 0, 0, win32con.DI_NORMAL)
-        for icon in large_icons + small_icons:
-            win32gui.DestroyIcon(icon)
+        win32gui.DrawIconEx(memory_dc.GetSafeHdc(), 0, 0, icon_handle, source_size, source_size, 0, 0, win32con.DI_NORMAL)
 
         bmpinfo = bitmap.GetInfo()
         bmpstr = bitmap.GetBitmapBits(True)
@@ -281,6 +325,17 @@ def get_icon_from_exe(exe_path, size=32, source_size=None, corner_radius=0):
         return ctk.CTkImage(light_image=image, dark_image=image, size=(size, size))
     except Exception:
         return None
+    finally:
+        for icon in extracted_icons:
+            try:
+                win32gui.DestroyIcon(icon)
+            except Exception:
+                pass
+        if shell_icon:
+            try:
+                win32gui.DestroyIcon(shell_icon)
+            except Exception:
+                pass
 
 
 def get_icon_from_image(image_path, size=32, source_size=None, corner_radius=0):
@@ -331,14 +386,53 @@ def make_tray_image():
     return make_app_icon_image(64)
 
 
+def cleanup_expired_logs(now=None):
+    if not os.path.isdir(LOG_DIR):
+        return 0
+    cutoff = (now or time.time()) - LOG_RETENTION_DAYS * 24 * 60 * 60
+    active_names = {os.path.basename(LOG_FILE), os.path.basename(SETTINGS_EVENT_LOG_FILE)}
+    prefixes = tuple(f"{name}." for name in active_names)
+    removed = 0
+    for name in os.listdir(LOG_DIR):
+        if not name.startswith(prefixes):
+            continue
+        path = os.path.join(LOG_DIR, name)
+        try:
+            if os.path.isfile(path) and os.path.getmtime(path) < cutoff:
+                os.remove(path)
+                removed += 1
+        except OSError:
+            continue
+    return removed
+
+
+def install_exception_logging_hooks():
+    def log_main_exception(exc_type, exc_value, exc_traceback):
+        if issubclass(exc_type, KeyboardInterrupt):
+            return sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        logging.critical("unhandled main-thread exception", exc_info=(exc_type, exc_value, exc_traceback))
+
+    def log_thread_exception(args):
+        logging.critical(
+            "unhandled thread exception thread=%s",
+            getattr(args.thread, "name", None),
+            exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+        )
+
+    sys.excepthook = log_main_exception
+    if hasattr(threading, "excepthook"):
+        threading.excepthook = log_thread_exception
+
+
 def setup_logging():
     try:
         os.makedirs(LOG_DIR, exist_ok=True)
+        removed_logs = cleanup_expired_logs()
         logger = logging.getLogger()
         logger.setLevel(logging.INFO)
         for handler in list(logger.handlers):
             logger.removeHandler(handler)
-        handler = RotatingFileHandler(LOG_FILE, maxBytes=1_000_000, backupCount=5, encoding="utf-8")
+        handler = RotatingFileHandler(LOG_FILE, maxBytes=MAIN_LOG_MAX_BYTES, backupCount=MAIN_LOG_BACKUP_COUNT, encoding="utf-8")
         handler.setFormatter(logging.Formatter("%(asctime)s.%(msecs)03d [%(levelname)s] %(threadName)s %(message)s", "%Y-%m-%d %H:%M:%S"))
         logger.addHandler(handler)
         settings_logger = logging.getLogger("settings_events")
@@ -346,10 +440,25 @@ def setup_logging():
         settings_logger.propagate = False
         for existing_handler in list(settings_logger.handlers):
             settings_logger.removeHandler(existing_handler)
-        settings_handler = RotatingFileHandler(SETTINGS_EVENT_LOG_FILE, maxBytes=500_000, backupCount=3, encoding="utf-8")
+        settings_handler = RotatingFileHandler(SETTINGS_EVENT_LOG_FILE, maxBytes=SETTINGS_LOG_MAX_BYTES, backupCount=SETTINGS_LOG_BACKUP_COUNT, encoding="utf-8")
         settings_handler.setFormatter(logging.Formatter("%(asctime)s.%(msecs)03d %(message)s", "%Y-%m-%d %H:%M:%S"))
         settings_logger.addHandler(settings_handler)
-        logging.info("logging started app_dir=%s resource_dir=%s frozen=%s", APP_DIR, RESOURCE_DIR, getattr(sys, "frozen", False))
+        install_exception_logging_hooks()
+        windows_version = sys.getwindowsversion()
+        logging.info(
+            "logging started version=%s app_dir=%s resource_dir=%s frozen=%s python=%s windows=%s.%s.%s pid=%s retention_days=%s removed_expired=%s",
+            APP_VERSION,
+            APP_DIR,
+            RESOURCE_DIR,
+            getattr(sys, "frozen", False),
+            sys.version.split()[0],
+            windows_version.major,
+            windows_version.minor,
+            windows_version.build,
+            os.getpid(),
+            LOG_RETENTION_DAYS,
+            removed_logs,
+        )
     except Exception:
         logging.basicConfig(level=logging.INFO)
 
@@ -731,14 +840,18 @@ def make_settings_control_surface(
     stroke_bottom=True,
     stroke_left=True,
     hover=False,
+    fill_color=None,
 ):
-    surface = create_rgba_linear_gradient(
-        width,
-        height,
-        INACTIVE_BUTTON_HOVER_GRADIENT_START if hover else INACTIVE_BUTTON_GRADIENT_START,
-        INACTIVE_BUTTON_HOVER_GRADIENT_END if hover else INACTIVE_BUTTON_GRADIENT_END,
-        angle_degrees=135,
-    )
+    if fill_color is None:
+        surface = create_rgba_linear_gradient(
+            width,
+            height,
+            INACTIVE_BUTTON_HOVER_GRADIENT_START if hover else INACTIVE_BUTTON_GRADIENT_START,
+            INACTIVE_BUTTON_HOVER_GRADIENT_END if hover else INACTIVE_BUTTON_GRADIENT_END,
+            angle_degrees=135,
+        )
+    else:
+        surface = Image.new("RGBA", (width, height), fill_color)
     mask = Image.new("L", (width, height), 0)
     mask_draw = ImageDraw.Draw(mask)
     radius = 4
@@ -855,7 +968,10 @@ def make_settings_dropdown_segment_image(
     stroke_right=True,
     stroke_bottom=True,
     stroke_left=True,
+    arrow_width=None,
+    fill_color=CONTROL_BG,
 ):
+    arrow_width = min(width, max(1, arrow_width or height))
     image = Image.new("RGBA", (width, height), SETTINGS_PANEL_BG)
     segment = make_settings_control_surface(
         width,
@@ -868,6 +984,7 @@ def make_settings_dropdown_segment_image(
         stroke_right=stroke_right,
         stroke_bottom=stroke_bottom,
         stroke_left=stroke_left,
+        fill_color=fill_color,
     )
     image.alpha_composite(segment)
 
@@ -875,7 +992,8 @@ def make_settings_dropdown_segment_image(
 
     draw = ImageDraw.Draw(image)
     display_text = text
-    max_text_width = max(24, width - 48)
+    text_area_width = max(1, width - arrow_width)
+    max_text_width = max(24, text_area_width - 16)
     while display_text:
         bbox = draw.textbbox((0, 0), display_text, font=text_font)
         if bbox[2] - bbox[0] <= max_text_width:
@@ -887,12 +1005,13 @@ def make_settings_dropdown_segment_image(
     bbox = draw.textbbox((0, 0), display_text, font=text_font)
     text_width = bbox[2] - bbox[0]
     text_height = bbox[3] - bbox[1]
-    x = max(8, (width - text_width) // 2 - 8)
+    x = max(8, (text_area_width - text_width) // 2)
     y = (height - text_height) / 2 - bbox[1]
     draw.text((x, y), display_text, fill=(255, 255, 255, 255), font=text_font)
 
-    arrow_x = width - 18
+    arrow_x = text_area_width + arrow_width // 2
     arrow_y = height // 2
+    draw.line((text_area_width, 1, text_area_width, height - 2), fill=SETTINGS_CONTROL_DIVIDER, width=1)
     draw.line((arrow_x - 5, arrow_y - 2, arrow_x, arrow_y + 3, arrow_x + 5, arrow_y - 2), fill=(255, 255, 255, 255), width=2)
     if separator_left:
         draw.line((0, 0, 0, height - 1), fill=SETTINGS_CONTROL_DIVIDER, width=1)
@@ -1169,6 +1288,7 @@ class AutoAudioApp(ctk.CTk):
         self.active_settings_dropdown = None
         self.program_list_render_token = 0
         self.settings_bg_bound = False
+        self.log_cleanup_after_id = None
         self.tray = None
         ensure_icon_assets()
         self.icons = {
@@ -1222,6 +1342,7 @@ class AutoAudioApp(ctk.CTk):
         self.monitor_thread = threading.Thread(target=self.monitor_loop, daemon=True)
         self.monitor_thread.start()
         logging.info("monitor thread started")
+        self.schedule_log_cleanup()
 
     def report_callback_exception(self, exc, val, tb):
         logging.error("tk callback exception", exc_info=(exc, val, tb))
@@ -1462,7 +1583,7 @@ class AutoAudioApp(ctk.CTk):
                 if isinstance(loaded, dict):
                     config.update(loaded)
             except Exception:
-                pass
+                logging.exception("config load failed; defaults will be used file=%s", CONFIG_FILE)
 
         config["auto_list"] = self.normalize_program_list(config.get("auto_list", []))
         config["ask_list"] = self.normalize_program_list(config.get("ask_list", []))
@@ -1474,6 +1595,13 @@ class AutoAudioApp(ctk.CTk):
         config["ask_timeout_seconds"] = self.parse_ask_timeout_seconds(config.get("ask_timeout_seconds", ASK_TIMEOUT_SECONDS))
         config["mini_notification_seconds"] = self.parse_mini_notification_seconds(config.get("mini_notification_seconds", MINI_NOTIFICATION_SECONDS))
         config["language"] = normalize_language_code(config.get("language", DEFAULT_LANGUAGE))
+        logging.info(
+            "config loaded auto_rules=%s ask_rules=%s language=%s onboarding_completed=%s",
+            len(config["auto_list"]),
+            len(config["ask_list"]),
+            config["language"],
+            bool(config.get("onboarding_completed")),
+        )
         return config
 
     def current_language(self):
@@ -1576,8 +1704,33 @@ class AutoAudioApp(ctk.CTk):
         return deduped_auto, deduped_ask
 
     def save_config(self):
-        with open(CONFIG_FILE, "w", encoding="utf-8") as file:
-            json.dump(self.config_data, file, indent=4, ensure_ascii=False)
+        temporary_path = f"{CONFIG_FILE}.tmp"
+        try:
+            with open(temporary_path, "w", encoding="utf-8") as file:
+                json.dump(self.config_data, file, indent=4, ensure_ascii=False)
+                file.flush()
+                os.fsync(file.fileno())
+            os.replace(temporary_path, CONFIG_FILE)
+        except Exception:
+            logging.exception("config save failed file=%s", CONFIG_FILE)
+            try:
+                if os.path.exists(temporary_path):
+                    os.remove(temporary_path)
+            except OSError:
+                pass
+            raise
+
+    def schedule_log_cleanup(self):
+        if self.log_cleanup_after_id:
+            try:
+                self.after_cancel(self.log_cleanup_after_id)
+            except Exception:
+                pass
+        removed = cleanup_expired_logs()
+        if removed:
+            logging.info("expired rotated logs removed count=%s retention_days=%s", removed, LOG_RETENTION_DAYS)
+        if self.is_running:
+            self.log_cleanup_after_id = self.after(LOG_CLEANUP_INTERVAL_MS, self.schedule_log_cleanup)
 
     def apply_window_icon(self, window=None):
         window = window or self
@@ -2382,25 +2535,22 @@ class AutoAudioApp(ctk.CTk):
         device_options = self.build_device_options()
 
         bottom = ctk.CTkFrame(self, fg_color="transparent", bg_color=SETTINGS_GRADIENT_END)
-        bottom.pack(side="bottom", fill="x", padx=0, pady=(0, 0))
-        ctk.CTkButton(bottom, text=self.tr("save"), height=39, fg_color=ACTIVE_COLOR, hover_color=ACTIVE_HOVER_COLOR, text_color="white", corner_radius=8, command=self.save_and_close).pack(fill="x", padx=8, pady=(0, 8))
+        ctk.CTkButton(bottom, text=self.tr("save"), height=39, fg_color=ACTIVE_COLOR, hover_color=ACTIVE_HOVER_COLOR, text_color="white", corner_radius=8, command=self.save_and_close).pack(fill="x", padx=8, pady=(8, 8))
 
         body = ctk.CTkFrame(self, fg_color="transparent", bg_color=SETTINGS_GRADIENT_END, corner_radius=0)
-        body.pack(fill="both", expand=True, padx=8, pady=(8, 8))
+        body.pack(fill="x", padx=8, pady=(8, 0))
         body.grid_columnconfigure(0, weight=0, minsize=SETTINGS_LEFT_WIDTH)
         body.grid_columnconfigure(1, weight=1, minsize=SETTINGS_RIGHT_WIDTH)
         body.grid_rowconfigure(0, weight=1)
 
         left_column = ctk.CTkFrame(body, fg_color="transparent", bg_color=SETTINGS_GRADIENT_END, corner_radius=0, width=SETTINGS_LEFT_WIDTH)
         left_column.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
-        left_column.grid_propagate(False)
-        left_column.pack_propagate(False)
 
         right_column = ctk.CTkFrame(body, fg_color="transparent", bg_color=SETTINGS_GRADIENT_END, corner_radius=0)
         right_column.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
 
         settings_panel = ctk.CTkFrame(left_column, fg_color=SETTINGS_PANEL_BG, bg_color=SETTINGS_GRADIENT_END, corner_radius=SETTINGS_PANEL_RADIUS, border_width=0)
-        settings_panel.pack(fill="both", expand=True, padx=0, pady=(0, 0))
+        settings_panel.pack(fill="x", padx=0, pady=(0, 0))
         settings_content = ctk.CTkFrame(settings_panel, fg_color="transparent", bg_color=SETTINGS_PANEL_BG, corner_radius=0)
         settings_content.pack(fill="x", padx=14, pady=(8, 12))
 
@@ -2508,13 +2658,17 @@ class AutoAudioApp(ctk.CTk):
         self.language_combo.pack(fill="x")
 
         program_panel = ctk.CTkFrame(right_column, fg_color=SETTINGS_PANEL_BG, bg_color=SETTINGS_GRADIENT_END, corner_radius=SETTINGS_PANEL_RADIUS, border_width=0)
-        program_panel.pack(fill="both", expand=True, padx=0, pady=(0, 0))
+        program_panel.pack(fill="x", padx=0, pady=(0, 0))
+        program_panel.pack_propagate(False)
         program_content = ctk.CTkFrame(program_panel, fg_color="transparent", bg_color=SETTINGS_PANEL_BG, corner_radius=0)
         program_content.pack(fill="both", expand=True, padx=14, pady=8)
         ctk.CTkLabel(program_content, text=self.tr("program_list"), font=(self.ui_font_family(), 22, "bold"), text_color="white", fg_color="transparent", bg_color="transparent").pack(anchor="w", padx=0, pady=(0, 2))
         self.program_list_frame = ctk.CTkFrame(program_content, fg_color="transparent", bg_color="transparent", corner_radius=0)
         self.program_list_frame.pack(fill="both", expand=True)
         self.refresh_program_lists()
+        settings_panel.update_idletasks()
+        program_panel.configure(height=settings_panel.winfo_reqheight())
+        bottom.pack(fill="x", padx=0, pady=0)
         self.log_settings_event("draw_settings_end", elapsed_ms=int((time.perf_counter() - started_at) * 1000), devices=len(device_options))
 
 
@@ -2827,6 +2981,7 @@ class AutoAudioApp(ctk.CTk):
                 separator_right=True,
                 stroke_top=False,
                 stroke_right=False,
+                fill_color=None,
             )
             hotkey_label._dropdown_image = image
             hotkey_label.configure(image=image, width=width, height=SETTINGS_HOTKEY_HEIGHT)
@@ -3049,11 +3204,11 @@ class AutoAudioApp(ctk.CTk):
         item.pack_propagate(False)
 
         icon_source = self.get_program_icon_source(program)
-        icon = self.get_cached_program_icon_if_ready(icon_source, size=PROGRAM_ICON_SIZE)
+        icon = self.get_cached_program_icon_if_ready(icon_source, size=PROGRAM_ICON_SIZE, use_shell_fallback=False)
         icon_label = ctk.CTkLabel(item, text="" if icon else "APP", image=icon, width=38, height=38, fg_color="#272A2F", corner_radius=4, font=("Segoe UI", 9, "bold"))
         icon_label.pack(side="left", padx=(10, 8), pady=6)
         if not icon and icon_source:
-            self.schedule_program_icon_load(icon_label, icon_source, self.program_list_render_token, size=PROGRAM_ICON_SIZE)
+            self.schedule_program_icon_load(icon_label, icon_source, self.program_list_render_token, size=PROGRAM_ICON_SIZE, use_shell_fallback=False)
 
         text_box = ctk.CTkFrame(item, fg_color="transparent")
         text_box.pack(side="left", fill="both", expand=True, padx=0, pady=5)
@@ -3096,24 +3251,24 @@ class AutoAudioApp(ctk.CTk):
         if not self.program_icon_preload_queue:
             return
         source = self.program_icon_preload_queue.pop(0)
-        self.get_cached_program_icon(source, size=PROGRAM_ICON_SIZE)
+        self.get_cached_program_icon(source, size=PROGRAM_ICON_SIZE, use_shell_fallback=False)
         self.after(80, self.preload_next_program_icon)
 
-    def program_icon_cache_key(self, path, size=PROGRAM_ICON_SIZE, source_size=None, corner_radius=0):
-        return (path or "", size, source_size or size, corner_radius)
+    def program_icon_cache_key(self, path, size=PROGRAM_ICON_SIZE, source_size=None, corner_radius=0, use_shell_fallback=True):
+        return (path or "", size, source_size or size, corner_radius, bool(use_shell_fallback))
 
-    def get_cached_program_icon_if_ready(self, path, size=PROGRAM_ICON_SIZE, source_size=None, corner_radius=0):
-        return self.exe_icon_cache.get(self.program_icon_cache_key(path, size, source_size, corner_radius))
+    def get_cached_program_icon_if_ready(self, path, size=PROGRAM_ICON_SIZE, source_size=None, corner_radius=0, use_shell_fallback=True):
+        return self.exe_icon_cache.get(self.program_icon_cache_key(path, size, source_size, corner_radius, use_shell_fallback))
 
-    def load_program_icon_into_label(self, label, path, size=PROGRAM_ICON_SIZE):
+    def load_program_icon_into_label(self, label, path, size=PROGRAM_ICON_SIZE, use_shell_fallback=True):
         if not self.widget_exists(label):
             return
-        icon = self.get_cached_program_icon(path, size=size)
+        icon = self.get_cached_program_icon(path, size=size, use_shell_fallback=use_shell_fallback)
         if self.widget_exists(label) and icon:
             label.configure(image=icon, text="")
 
-    def schedule_program_icon_load(self, label, path, token, size=PROGRAM_ICON_SIZE):
-        if not path or self.get_cached_program_icon_if_ready(path, size=size):
+    def schedule_program_icon_load(self, label, path, token, size=PROGRAM_ICON_SIZE, use_shell_fallback=True):
+        if not path or self.get_cached_program_icon_if_ready(path, size=size, use_shell_fallback=use_shell_fallback):
             return
         self.program_icon_load_counter += 1
         delay_ms = min(600, 30 * self.program_icon_load_counter)
@@ -3121,18 +3276,18 @@ class AutoAudioApp(ctk.CTk):
         def load_if_current():
             if token != getattr(self, "program_list_render_token", None) or not self.widget_exists(label):
                 return
-            self.load_program_icon_into_label(label, path, size=size)
+            self.load_program_icon_into_label(label, path, size=size, use_shell_fallback=use_shell_fallback)
 
         self.after(delay_ms, load_if_current)
 
-    def get_cached_program_icon(self, path, size=PROGRAM_ICON_SIZE, source_size=None, corner_radius=0):
-        cache_key = self.program_icon_cache_key(path, size, source_size, corner_radius)
+    def get_cached_program_icon(self, path, size=PROGRAM_ICON_SIZE, source_size=None, corner_radius=0, use_shell_fallback=True):
+        cache_key = self.program_icon_cache_key(path, size, source_size, corner_radius, use_shell_fallback)
         if cache_key not in self.exe_icon_cache:
             extension = os.path.splitext(path or "")[1].lower()
             if extension in (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".ico"):
                 icon = get_icon_from_image(path, size=size, source_size=source_size, corner_radius=corner_radius)
             else:
-                icon = get_icon_from_exe(path, size=size, source_size=source_size, corner_radius=corner_radius)
+                icon = get_icon_from_exe(path, size=size, source_size=source_size, corner_radius=corner_radius, use_shell_fallback=use_shell_fallback)
             self.exe_icon_cache[cache_key] = icon
         return self.exe_icon_cache[cache_key]
 
@@ -3556,7 +3711,7 @@ class AutoAudioApp(ctk.CTk):
     def create_editable_duration_dropdown_field(self, parent, variable, values, width=SETTINGS_DEVICE_WIDTH, height=30, formatter=None, command=None):
         frame = ctk.CTkFrame(parent, width=width, height=height, fg_color="transparent", bg_color=SETTINGS_PANEL_BG, corner_radius=0)
         frame.pack_propagate(False)
-        arrow_width = 42
+        arrow_width = height
         background = ctk.CTkLabel(frame, text="", width=width, height=height, fg_color=SETTINGS_PANEL_BG, bg_color=SETTINGS_PANEL_BG)
         background.place(x=0, y=0, relwidth=1, relheight=1)
         entry = tk.Entry(
@@ -3571,24 +3726,25 @@ class AutoAudioApp(ctk.CTk):
             selectforeground="white",
             font=(self.ui_font_family(), 13),
         )
-        entry.place(x=10, y=2, width=max(40, width - arrow_width - 16), height=max(1, height - 4))
+        entry.place(x=10, y=1, width=max(40, width - arrow_width - 12), height=max(1, height - 2))
         background.configure(cursor="hand2")
 
         def refresh(*_):
             current_width = max(width, frame.winfo_width() or width)
             image = make_settings_dropdown_segment_image(
-                variable.get(),
+                "",
                 current_width,
                 height,
                 rounded_top_left=True,
                 rounded_top_right=True,
                 rounded_bottom_left=True,
                 rounded_bottom_right=True,
+                arrow_width=arrow_width,
             )
             frame._settings_dropdown_image = image
             background.configure(image=image, width=current_width, height=height)
             background.image = image
-            entry.place_configure(width=max(40, current_width - arrow_width - 16), height=max(1, height - 4))
+            entry.place_configure(width=max(40, current_width - arrow_width - 12), height=max(1, height - 2))
 
         def normalize_value():
             if formatter:
@@ -4610,7 +4766,8 @@ class AutoAudioApp(ctk.CTk):
             row = ctk.CTkFrame(scroll, fg_color=PANEL_BG, corner_radius=4)
             row.pack(fill="x", padx=4, pady=4)
 
-            icon = self.get_cached_program_icon(program.get("path"), size=PROGRAM_ICON_SIZE)
+            icon_source = program.get("path") or program.get("name") or "program.exe"
+            icon = self.get_cached_program_icon(icon_source, size=PROGRAM_ICON_SIZE)
             ctk.CTkLabel(row, text="" if icon else "APP", image=icon, width=42, height=42, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(8, 4), pady=6)
 
             text_box = ctk.CTkFrame(row, fg_color="transparent")
@@ -4622,9 +4779,13 @@ class AutoAudioApp(ctk.CTk):
             ctk.CTkButton(row, text="Add", width=62, height=28, fg_color=CONTROL_BG, hover_color=CONTROL_HOVER, corner_radius=4, command=lambda p=program: self.pick_running_program(key, p, picker)).pack(side="right", padx=8)
 
     def list_running_programs(self):
+        started_at = time.perf_counter()
         current_pid = os.getpid()
         candidates = []
         grouped = {}
+        scan_errors = 0
+        resource_filtered = 0
+        missing_paths = 0
 
         for process in psutil.process_iter(["pid", "name", "exe", "create_time"]):
             try:
@@ -4635,6 +4796,7 @@ class AutoAudioApp(ctk.CTk):
                 process.cpu_percent(None)
                 candidates.append(process)
             except Exception:
+                scan_errors += 1
                 continue
 
         time.sleep(RUNNING_PROGRAM_CPU_SAMPLE_SECONDS)
@@ -4645,6 +4807,8 @@ class AutoAudioApp(ctk.CTk):
                 if not name:
                     continue
                 path = process.info.get("exe") or ""
+                if not path:
+                    missing_paths += 1
                 memory = process.info.get("memory_info")
                 if memory is None:
                     memory = process.memory_info()
@@ -4652,6 +4816,7 @@ class AutoAudioApp(ctk.CTk):
                 raw_cpu_percent = float(process.cpu_percent(None) or 0)
                 cpu_percent = min(100.0, raw_cpu_percent / CPU_CORE_COUNT)
                 if cpu_percent < MIN_RUNNING_PROGRAM_CPU_PERCENT and memory_mb < MIN_RUNNING_PROGRAM_MEMORY_MB:
+                    resource_filtered += 1
                     continue
 
                 item = grouped.setdefault(
@@ -4673,9 +4838,19 @@ class AutoAudioApp(ctk.CTk):
                     item["path"] = path
                 item["resource_score"] = item["cpu_percent"] * 100 + item["memory_mb"]
             except Exception:
+                scan_errors += 1
                 continue
 
         results = list(grouped.values())
+        logging.info(
+            "running program scan complete candidates=%s selectable=%s filtered=%s missing_paths=%s errors=%s elapsed_ms=%s",
+            len(candidates),
+            len(results),
+            resource_filtered,
+            missing_paths,
+            scan_errors,
+            int((time.perf_counter() - started_at) * 1000),
+        )
         return sorted(results, key=lambda item: item["name"].lower())
 
     def pick_running_program(self, key, program, picker):
@@ -4775,8 +4950,8 @@ class AutoAudioApp(ctk.CTk):
             editor.destroy()
             self.refresh_program_lists()
 
-        ctk.CTkButton(button_row, text="Save", height=38, fg_color=CONTROL_BG, hover_color=CONTROL_HOVER, corner_radius=4, font=("Segoe UI", 15), command=save_name).pack(side="left", fill="x", expand=True, padx=(0, 5))
-        ctk.CTkButton(button_row, text="Cancel", height=38, fg_color=CONTROL_BG, hover_color=CONTROL_HOVER, corner_radius=4, font=("Segoe UI", 15), command=editor.destroy).pack(side="left", fill="x", expand=True, padx=(5, 0))
+        ctk.CTkButton(button_row, text="Save", height=32, fg_color=ACTIVE_COLOR, hover_color=ACTIVE_HOVER_COLOR, corner_radius=4, font=("Segoe UI", 15), command=save_name).pack(side="left", fill="x", expand=True, padx=(0, 5))
+        ctk.CTkButton(button_row, text="Cancel", height=32, fg_color="#991B1B", hover_color="#B91C1C", corner_radius=4, font=("Segoe UI", 15), command=editor.destroy).pack(side="left", fill="x", expand=True, padx=(5, 0))
         editor.bind("<Return>", lambda event: save_name())
         editor.bind("<Escape>", lambda event: editor.destroy())
 
@@ -5297,6 +5472,12 @@ class AutoAudioApp(ctk.CTk):
     def quit_app(self, *args):
         logging.info("quit requested")
         self.is_running = False
+        if self.log_cleanup_after_id:
+            try:
+                self.after_cancel(self.log_cleanup_after_id)
+            except Exception:
+                pass
+            self.log_cleanup_after_id = None
         if self.keyboard_event_after_id:
             try:
                 self.after_cancel(self.keyboard_event_after_id)
