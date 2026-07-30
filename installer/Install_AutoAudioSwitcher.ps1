@@ -13,23 +13,29 @@ function Write-Step {
 }
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$sourceDir = Join-Path $scriptDir "AutoAudioSwitcher"
-if (-not (Test-Path -LiteralPath $sourceDir)) {
-    $sourceDir = Join-Path (Split-Path -Parent $scriptDir) "AutoAudioSwitcher"
-}
+$sourceCandidates = @(
+    $scriptDir,
+    (Join-Path $scriptDir "AutoAudioSwitcher"),
+    (Join-Path (Split-Path -Parent $scriptDir) "AutoAudioSwitcher")
+)
+$sourceDir = $sourceCandidates | Where-Object {
+    Test-Path -LiteralPath (Join-Path $_ "AutoAudioSwitcher.exe")
+} | Select-Object -First 1
 
-$sourceExe = Join-Path $sourceDir "AutoAudioSwitcher.exe"
-if (-not (Test-Path -LiteralPath $sourceExe)) {
-    throw "AutoAudioSwitcher.exe was not found. Keep this installer next to the AutoAudioSwitcher folder from the distribution package."
+if (-not $sourceDir) {
+    throw "AutoAudioSwitcher.exe was not found. Extract the complete distribution ZIP before running the installer."
 }
+$sourceExe = Join-Path $sourceDir "AutoAudioSwitcher.exe"
 
 if ([Environment]::OSVersion.Version.Major -lt 10) {
     throw "Auto Audio Switcher requires Windows 10 or Windows 11."
 }
 
 $InstallDir = [System.IO.Path]::GetFullPath($InstallDir)
+$sourceDir = [System.IO.Path]::GetFullPath($sourceDir)
 $installRoot = [System.IO.Path]::GetPathRoot($InstallDir)
 $normalizedInstallDir = $InstallDir.TrimEnd('\')
+$normalizedSourceDir = $sourceDir.TrimEnd('\')
 $forbiddenTargets = @(
     $installRoot,
     [System.IO.Path]::GetFullPath($env:USERPROFILE),
@@ -56,6 +62,7 @@ foreach ($relativePath in $requiredFiles) {
 
 Write-Step "Bundled Python runtime found. No separate Python installation is required."
 Write-Step "Installing to $InstallDir"
+$inPlaceInstall = $normalizedSourceDir -eq $normalizedInstallDir
 
 $installedExe = Join-Path $InstallDir "AutoAudioSwitcher.exe"
 Get-Process -Name "AutoAudioSwitcher" -ErrorAction SilentlyContinue | Where-Object {
@@ -67,23 +74,32 @@ Get-Process -Name "AutoAudioSwitcher" -ErrorAction SilentlyContinue | Where-Obje
 }
 
 $existingConfig = Join-Path $InstallDir "config.json"
-$backupConfig = $null
-if ((Test-Path -LiteralPath $existingConfig) -and -not $ResetConfig) {
-    $backupConfig = Join-Path $env:TEMP ("AutoAudioSwitcher_config_" + [guid]::NewGuid().ToString("N") + ".json")
-    Copy-Item -LiteralPath $existingConfig -Destination $backupConfig -Force
-    Write-Step "Existing config will be preserved."
-}
+if ($inPlaceInstall) {
+    Write-Step "The extracted app is already in the selected install directory; keeping files in place."
+} else {
+    $backupConfig = $null
+    if ((Test-Path -LiteralPath $existingConfig) -and -not $ResetConfig) {
+        $backupConfig = Join-Path $env:TEMP ("AutoAudioSwitcher_config_" + [guid]::NewGuid().ToString("N") + ".json")
+        Copy-Item -LiteralPath $existingConfig -Destination $backupConfig -Force
+        Write-Step "Existing config will be preserved."
+    }
 
-if (-not (Test-Path -LiteralPath $InstallDir)) {
-    New-Item -ItemType Directory -Path $InstallDir | Out-Null
-}
+    if (-not (Test-Path -LiteralPath $InstallDir)) {
+        New-Item -ItemType Directory -Path $InstallDir | Out-Null
+    }
 
-Get-ChildItem -LiteralPath $InstallDir -Force | Where-Object { $_.Name -ne "logs" } | Remove-Item -Recurse -Force
-Copy-Item -Path (Join-Path $sourceDir "*") -Destination $InstallDir -Recurse -Force
+    Get-ChildItem -LiteralPath $InstallDir -Force | Where-Object { $_.Name -ne "logs" } | Remove-Item -Recurse -Force
+    foreach ($appItem in @("AutoAudioSwitcher.exe", "config.json", "_internal")) {
+        $appItemPath = Join-Path $sourceDir $appItem
+        if (Test-Path -LiteralPath $appItemPath) {
+            Copy-Item -LiteralPath $appItemPath -Destination $InstallDir -Recurse -Force
+        }
+    }
 
-if ($backupConfig -and (Test-Path -LiteralPath $backupConfig)) {
-    Copy-Item -LiteralPath $backupConfig -Destination $existingConfig -Force
-    Remove-Item -LiteralPath $backupConfig -Force
+    if ($backupConfig -and (Test-Path -LiteralPath $backupConfig)) {
+        Copy-Item -LiteralPath $backupConfig -Destination $existingConfig -Force
+        Remove-Item -LiteralPath $backupConfig -Force
+    }
 }
 
 $shell = New-Object -ComObject WScript.Shell

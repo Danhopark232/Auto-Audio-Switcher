@@ -10,7 +10,7 @@ headset, while the desktop can return to speakers afterward.
 
 ![Mini view preview](assets/readme/mini-view.png)
 
-## Current Version — v1.0.1
+## Current Version — v1.0.2
 
 The current UI version focuses on faster audio switching, a compact mini view,
 clearer per-program control, and consistent sizing across Windows resolutions
@@ -41,9 +41,9 @@ and DPI scale settings.
 
 ## Installation
 
-1. Download `AutoAudioSwitcher-v1.0.1-Windows-x64.zip` from GitHub Releases.
+1. Download `AutoAudioSwitcher-v1.0.2-Windows-x64.zip` from GitHub Releases.
 2. Extract the ZIP file completely.
-3. Run `Install_AutoAudioSwitcher.bat`.
+3. Run `Install_AutoAudioSwitcher.bat` from the extracted folder.
 4. Start **Auto Audio Switcher** from the desktop or Start menu shortcut.
 
 The installer places the app under `%LOCALAPPDATA%\AutoAudioSwitcher` by
@@ -51,8 +51,9 @@ default and preserves existing settings when upgrading. The distribution
 already contains the Python runtime and required native libraries, so users do
 not need to install Python, pip packages, or Visual Studio separately.
 
-The extracted `AutoAudioSwitcher` folder can also be used as a portable build
-by running `AutoAudioSwitcher.exe` directly.
+The ZIP places `AutoAudioSwitcher.exe` at the top level beside the installer,
+so it is visible immediately after extraction. The same extracted folder can
+also be used as a portable build by running `AutoAudioSwitcher.exe` directly.
 
 ## Feature Highlights
 
@@ -88,6 +89,8 @@ settings window.
   been pinned by dragging.
 - The settings window uses a two-column layout: settings on the left and the
   program list on the right.
+- The Save area reserves the bottom edge before the settings and program list
+  are laid out, keeping the button visible on shorter work areas.
 - The Add Running Program dialog opens with `Recent`, `A-Z`, and `Resource`
   sorting, with Recent selected by default.
 

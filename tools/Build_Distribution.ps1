@@ -1,6 +1,6 @@
 param(
     [string]$ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
-    [string]$Version = "1.0.1",
+    [string]$Version = "1.0.2",
     [string]$SourceDir = "",
     [switch]$Use7Zip
 )
@@ -11,7 +11,7 @@ $dist = Join-Path $ProjectRoot "dist"
 $source = if ($SourceDir) { [System.IO.Path]::GetFullPath($SourceDir) } else { Join-Path $dist "AutoAudioSwitcher" }
 $installerDir = Join-Path $ProjectRoot "installer"
 $stageParent = Join-Path $dist "_zip_stage"
-$stage = Join-Path $stageParent "AutoAudioSwitcher"
+$stage = Join-Path $stageParent "release"
 $zipPath = Join-Path $dist ("AutoAudioSwitcher-v{0}-Windows-x64.zip" -f $Version)
 
 if (-not (Test-Path -LiteralPath (Join-Path $source "AutoAudioSwitcher.exe"))) {
@@ -28,7 +28,8 @@ if (Test-Path -LiteralPath $stageParent) {
 }
 
 New-Item -ItemType Directory -Path $stageParent | Out-Null
-Copy-Item -LiteralPath $source -Destination $stageParent -Recurse -Force
+New-Item -ItemType Directory -Path $stage | Out-Null
+Copy-Item -Path (Join-Path $source "*") -Destination $stage -Recurse -Force
 
 $logsPath = Join-Path $stage "logs"
 if (Test-Path -LiteralPath $logsPath) {
@@ -59,9 +60,9 @@ if (Test-Path -LiteralPath $internalConfig) {
     [System.IO.File]::WriteAllText($internalConfig, $cleanConfig + [Environment]::NewLine, $utf8NoBom)
 }
 
-Copy-Item -LiteralPath (Join-Path $installerDir "Install_AutoAudioSwitcher.ps1") -Destination $stageParent -Force
-Copy-Item -LiteralPath (Join-Path $installerDir "Install_AutoAudioSwitcher.bat") -Destination $stageParent -Force
-Copy-Item -LiteralPath (Join-Path $ProjectRoot "README.md") -Destination $stageParent -Force
+Copy-Item -LiteralPath (Join-Path $installerDir "Install_AutoAudioSwitcher.ps1") -Destination $stage -Force
+Copy-Item -LiteralPath (Join-Path $installerDir "Install_AutoAudioSwitcher.bat") -Destination $stage -Force
+Copy-Item -LiteralPath (Join-Path $ProjectRoot "README.md") -Destination $stage -Force
 
 if (Test-Path -LiteralPath $zipPath) {
     Remove-Item -LiteralPath $zipPath -Force
@@ -69,14 +70,16 @@ if (Test-Path -LiteralPath $zipPath) {
 
 $sevenZip = Get-Command 7z.exe -ErrorAction SilentlyContinue
 if ($Use7Zip -and $sevenZip) {
-    Push-Location $stageParent
+    Push-Location $stage
     try {
-        & $sevenZip.Source a -tzip -mx=9 $zipPath "AutoAudioSwitcher" "Install_AutoAudioSwitcher.ps1" "Install_AutoAudioSwitcher.bat" "README.md" | Out-Host
+        $archiveItemNames = @(Get-ChildItem -LiteralPath $stage -Force | Select-Object -ExpandProperty Name)
+        & $sevenZip.Source a -tzip -mx=9 $zipPath $archiveItemNames | Out-Host
     } finally {
         Pop-Location
     }
 } else {
-    Compress-Archive -LiteralPath $stage, (Join-Path $stageParent "Install_AutoAudioSwitcher.ps1"), (Join-Path $stageParent "Install_AutoAudioSwitcher.bat"), (Join-Path $stageParent "README.md") -DestinationPath $zipPath -CompressionLevel Optimal
+    $archiveItems = @(Get-ChildItem -LiteralPath $stage -Force | Select-Object -ExpandProperty FullName)
+    Compress-Archive -LiteralPath $archiveItems -DestinationPath $zipPath -CompressionLevel Optimal
 }
 
 Remove-Item -LiteralPath $stageParent -Recurse -Force

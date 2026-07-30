@@ -53,7 +53,7 @@ SETTINGS_EVENT_LOG_FILE = os.path.join(LOG_DIR, "settings_events.log")
 APP_ICON_FILE = os.path.join(RESOURCE_DIR, "assets", "app_icon.png")
 APP_ICON_ICO_FILE = os.path.join(RESOURCE_DIR, "assets", "app_icon.ico")
 ICON_DIR = os.path.join(RESOURCE_DIR, "assets", "icons")
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.2"
 WINDOWS_APP_ID = "AutoAudioSwitcher.AutoAudioSwitcher"
 SINGLE_INSTANCE_MUTEX_NAME = "Local\\AutoAudioSwitcher.SingleInstance"
 ERROR_ALREADY_EXISTS = 183
@@ -2634,9 +2634,10 @@ class AutoAudioApp(ctk.CTk):
 
         bottom = ctk.CTkFrame(self, fg_color="transparent", bg_color=SETTINGS_GRADIENT_END)
         ctk.CTkButton(bottom, text=self.tr("save"), height=39, fg_color=ACTIVE_COLOR, hover_color=ACTIVE_HOVER_COLOR, text_color="white", corner_radius=8, command=self.save_and_close).pack(fill="x", padx=8, pady=(8, 8))
+        bottom.pack(side="bottom", fill="x", padx=0, pady=0)
 
         body = ctk.CTkFrame(self, fg_color="transparent", bg_color=SETTINGS_GRADIENT_END, corner_radius=0)
-        body.pack(fill="x", padx=8, pady=(8, 0))
+        body.pack(side="top", fill="both", expand=True, padx=8, pady=(8, 0))
         body.grid_columnconfigure(0, weight=0, minsize=SETTINGS_LEFT_WIDTH)
         body.grid_columnconfigure(1, weight=1, minsize=SETTINGS_RIGHT_WIDTH)
         body.grid_rowconfigure(0, weight=1)
@@ -2648,7 +2649,7 @@ class AutoAudioApp(ctk.CTk):
         right_column.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
 
         settings_panel = ctk.CTkFrame(left_column, fg_color=SETTINGS_PANEL_BG, bg_color=SETTINGS_GRADIENT_END, corner_radius=SETTINGS_PANEL_RADIUS, border_width=0)
-        settings_panel.pack(fill="x", padx=0, pady=(0, 0))
+        settings_panel.pack(fill="both", expand=True, padx=0, pady=(0, 0))
         settings_content = ctk.CTkFrame(settings_panel, fg_color="transparent", bg_color=SETTINGS_PANEL_BG, corner_radius=0)
         settings_content.pack(fill="x", padx=14, pady=(8, 12))
 
@@ -2756,17 +2757,13 @@ class AutoAudioApp(ctk.CTk):
         self.language_combo.pack(fill="x")
 
         program_panel = ctk.CTkFrame(right_column, fg_color=SETTINGS_PANEL_BG, bg_color=SETTINGS_GRADIENT_END, corner_radius=SETTINGS_PANEL_RADIUS, border_width=0)
-        program_panel.pack(fill="x", padx=0, pady=(0, 0))
-        program_panel.pack_propagate(False)
+        program_panel.pack(fill="both", expand=True, padx=0, pady=(0, 0))
         program_content = ctk.CTkFrame(program_panel, fg_color="transparent", bg_color=SETTINGS_PANEL_BG, corner_radius=0)
         program_content.pack(fill="both", expand=True, padx=14, pady=8)
         ctk.CTkLabel(program_content, text=self.tr("program_list"), font=(self.ui_font_family(), 22, "bold"), text_color="white", fg_color="transparent", bg_color="transparent").pack(anchor="w", padx=0, pady=(0, 2))
         self.program_list_frame = ctk.CTkFrame(program_content, fg_color="transparent", bg_color="transparent", corner_radius=0)
         self.program_list_frame.pack(fill="both", expand=True)
         self.refresh_program_lists()
-        settings_panel.update_idletasks()
-        program_panel.configure(height=settings_panel.winfo_reqheight())
-        bottom.pack(fill="x", padx=0, pady=0)
         self.log_settings_event("draw_settings_end", elapsed_ms=int((time.perf_counter() - started_at) * 1000), devices=len(device_options))
 
 
