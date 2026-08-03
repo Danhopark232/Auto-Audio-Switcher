@@ -1302,6 +1302,8 @@ class AutoAudioApp(ctk.CTk):
         self.last_device_cache_refresh_time = 0
         self.last_audio_switch_failure_reason = None
         self.last_audio_switch_failure_target = None
+        self.offline_audio_mode = None
+        self.offline_audio_target = None
         self.offline_device_log_keys = set()
         self.loop_guard_log_keys = set()
         self.detection_rules_cache_key = None
@@ -3930,6 +3932,21 @@ class AutoAudioApp(ctk.CTk):
             output_ids = dict(getattr(self, "audio_device_ids", {}))
         return target, output_ids.get(target, "") or self.config_data.get(f"{mode}_id", "")
 
+    def remember_offline_audio_selection(self, mode, target):
+        self.offline_audio_mode = mode
+        self.offline_audio_target = target
+        self.current_audio_mode_cache = mode
+        self.last_audio_sync_time = time.monotonic()
+        logging.info("offline audio selection retained mode=%s target=%s", mode, target)
+
+    def clear_offline_audio_selection(self, reason):
+        mode = getattr(self, "offline_audio_mode", None)
+        target = getattr(self, "offline_audio_target", None)
+        if mode or target:
+            logging.info("offline audio selection cleared mode=%s target=%s reason=%s", mode, target, reason)
+        self.offline_audio_mode = None
+        self.offline_audio_target = None
+
     def is_audio_output_active(self, target):
         with self.device_cache_lock:
             return target in getattr(self, "audio_device_names", [])
@@ -4312,9 +4329,11 @@ class AutoAudioApp(ctk.CTk):
 
         if self.set_audio_with_pycaw(target, device_id):
             if not target_is_active:
+                self.remember_offline_audio_selection(mode, target)
                 logging.info("set_audio accepted offline target via pycaw mode=%s target=%s elapsed_ms=%d", mode, target, int((time.perf_counter() - started_at) * 1000))
                 return True
             if self.verify_audio_switch_target(mode, target, device_id):
+                self.clear_offline_audio_selection("active pycaw switch succeeded")
                 if self.audio_device_id_cache_dirty:
                     self.audio_device_id_cache_dirty = False
                     self.save_config()
@@ -4324,9 +4343,11 @@ class AutoAudioApp(ctk.CTk):
 
         if self.set_audio_with_nircmd(target):
             if not target_is_active:
+                self.remember_offline_audio_selection(mode, target)
                 logging.info("set_audio accepted offline target via nircmd mode=%s target=%s elapsed_ms=%d", mode, target, int((time.perf_counter() - started_at) * 1000))
                 return True
             if self.verify_audio_switch_target(mode, target, device_id):
+                self.clear_offline_audio_selection("active nircmd switch succeeded")
                 logging.info("set_audio success via nircmd mode=%s target=%s elapsed_ms=%d", mode, target, int((time.perf_counter() - started_at) * 1000))
                 return True
             logging.warning("nircmd reported success but output verification failed mode=%s target=%s", mode, target)
@@ -4336,6 +4357,15 @@ class AutoAudioApp(ctk.CTk):
                 self.save_config()
             except Exception:
                 logging.exception("failed to save audio device id cache after switch failure")
+        if not target_is_active:
+            self.remember_offline_audio_selection(mode, target)
+            logging.warning(
+                "set_audio deferred unavailable target after switch methods failed mode=%s target=%s elapsed_ms=%d",
+                mode,
+                target,
+                int((time.perf_counter() - started_at) * 1000),
+            )
+            return True
         logging.warning("set_audio failed all methods mode=%s target=%s elapsed_ms=%d", mode, target, int((time.perf_counter() - started_at) * 1000))
         return False
 
@@ -4417,6 +4447,20 @@ class AutoAudioApp(ctk.CTk):
 
     def get_cached_current_audio_mode(self, force=False):
         now = time.monotonic()
+        offline_mode = getattr(self, "offline_audio_mode", None)
+        if offline_mode in ("speaker", "headset"):
+            offline_target = getattr(self, "offline_audio_target", None)
+            configured_target = self.audio_mode_target_name(offline_mode)
+            if not configured_target or configured_target != offline_target:
+                self.clear_offline_audio_selection("configured output changed")
+            else:
+                self.refresh_audio_device_cache_if_stale(force=False)
+                if not self.is_audio_output_active(offline_target):
+                    self.current_audio_mode_cache = offline_mode
+                    self.last_audio_sync_time = now
+                    return offline_mode
+                self.clear_offline_audio_selection("output became active")
+                force = True
         if not force and self.current_audio_mode_cache and now - self.last_audio_sync_time < CURRENT_AUDIO_SYNC_INTERVAL_SECONDS:
             return self.current_audio_mode_cache
         current_mode = self.get_current_audio_mode()
@@ -4641,6 +4685,7 @@ class AutoAudioApp(ctk.CTk):
             warnings.filterwarnings("ignore")
             from pycaw.pycaw import AudioUtilities
             from pycaw.constants import ERole
+            from pycaw.utils import AudioDeviceState
 
             if device_id:
                 try:
@@ -4657,7 +4702,7 @@ class AutoAudioApp(ctk.CTk):
                 if self.audio_names_equal(name, target):
                     with self.device_cache_lock:
                         self.audio_device_ids[target] = device.id
-                        if target and target not in self.audio_device_names:
+                        if getattr(device, "state", None) == AudioDeviceState.Active and target and target not in self.audio_device_names:
                             self.audio_device_names.append(target)
                     for mode_name in ("speaker", "headset"):
                         if self.config_data.get(f"{mode_name}_name") == target and self.config_data.get(f"{mode_name}_id") != device.id:
