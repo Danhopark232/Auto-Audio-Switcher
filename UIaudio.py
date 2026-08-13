@@ -44,6 +44,14 @@ import win32ui
 from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageTk
 
 
+# This app mixes CustomTkinter widgets with pixel-rendered Tk canvases and PIL
+# images.  CustomTkinter's live per-monitor DPI updates only resize its own
+# widgets, leaving those pixel assets at their previous scale.  Keep one
+# coherent scale for the lifetime of the process; it is calculated explicitly
+# from the launch monitor and its work area below.
+ctk.deactivate_automatic_dpi_awareness()
+
+
 APP_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
 RESOURCE_DIR = getattr(sys, "_MEIPASS", APP_DIR)
 CONFIG_FILE = os.path.join(APP_DIR, "config.json")
@@ -161,6 +169,7 @@ DWMWA_TEXT_COLOR = 36
 DWMWA_WINDOW_CORNER_PREFERENCE = 33
 DWMWCP_ROUND = 2
 GA_ROOT = 2
+MONITOR_DEFAULTTONEAREST = 2
 WH_KEYBOARD_LL = 13
 WM_KEYDOWN = 0x0100
 WM_KEYUP = 0x0101
@@ -278,6 +287,15 @@ class SHFILEINFOW(ctypes.Structure):
         ("dwAttributes", wintypes.DWORD),
         ("szDisplayName", wintypes.WCHAR * 260),
         ("szTypeName", wintypes.WCHAR * 80),
+    ]
+
+
+class MONITORINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("rcMonitor", wintypes.RECT),
+        ("rcWork", wintypes.RECT),
+        ("dwFlags", wintypes.DWORD),
     ]
 
 
@@ -418,10 +436,13 @@ def calculate_effective_ui_scale(native_scale, work_width, work_height):
     return max(MIN_EFFECTIVE_UI_SCALE, min(native_scale, fit_scale))
 
 
+def calculate_scaled_window_size(width, height, scale):
+    return max(1, round(width * scale)), max(1, round(height * scale))
+
+
 def centered_scaled_geometry(width, height, scale, work_area):
     left, top, right, bottom = work_area
-    physical_width = max(1, round(width * scale))
-    physical_height = max(1, round(height * scale))
+    physical_width, physical_height = calculate_scaled_window_size(width, height, scale)
     work_width = max(1, right - left)
     work_height = max(1, bottom - top)
     x = left + max(0, (work_width - physical_width) // 2)
@@ -1786,21 +1807,53 @@ class AutoAudioApp(ctk.CTk):
 
     def configure_display_scaling(self):
         left, top, right, bottom = self.get_work_area()
-        native_scale = max(MIN_EFFECTIVE_UI_SCALE, float(self._get_window_scaling() or 1.0))
+        native_scale = self.get_native_display_scale()
         effective_scale = calculate_effective_ui_scale(native_scale, right - left, bottom - top)
-        scale_multiplier = effective_scale / native_scale
-        ctk.set_widget_scaling(scale_multiplier)
-        ctk.set_window_scaling(scale_multiplier)
-        self.effective_ui_scale = max(MIN_EFFECTIVE_UI_SCALE, float(self._get_window_scaling() or effective_scale))
+        ctk.set_widget_scaling(effective_scale)
+        ctk.set_window_scaling(effective_scale)
+        self.effective_ui_scale = effective_scale
+        settings_width, settings_height = calculate_scaled_window_size(
+            SETTINGS_DEFAULT_WIDTH,
+            SETTINGS_DEFAULT_HEIGHT,
+            effective_scale,
+        )
         logging.info(
-            "display scaling configured awareness=%s native_scale=%.3f effective_scale=%.3f multiplier=%.3f work_area=%sx%s",
+            "display scaling configured awareness=%s native_scale=%.3f effective_scale=%.3f work_area=%sx%s settings_physical=%sx%s",
             WINDOWS_DPI_AWARENESS,
             native_scale,
             self.effective_ui_scale,
-            scale_multiplier,
             right - left,
             bottom - top,
+            settings_width,
+            settings_height,
         )
+
+    def get_native_display_scale(self):
+        if sys.platform == "win32":
+            try:
+                get_dpi_for_window = ctypes.windll.user32.GetDpiForWindow
+                get_dpi_for_window.argtypes = [wintypes.HWND]
+                get_dpi_for_window.restype = wintypes.UINT
+                dpi = int(get_dpi_for_window(wintypes.HWND(self.winfo_id())))
+                if dpi > 0:
+                    return max(MIN_EFFECTIVE_UI_SCALE, dpi / 96.0)
+            except Exception:
+                pass
+            try:
+                get_dpi_for_system = ctypes.windll.user32.GetDpiForSystem
+                get_dpi_for_system.restype = wintypes.UINT
+                dpi = int(get_dpi_for_system())
+                if dpi > 0:
+                    return max(MIN_EFFECTIVE_UI_SCALE, dpi / 96.0)
+            except Exception:
+                pass
+        try:
+            dpi = float(self.winfo_fpixels("1i"))
+            if dpi > 0:
+                return max(MIN_EFFECTIVE_UI_SCALE, dpi / 96.0)
+        except Exception:
+            pass
+        return 1.0
 
     def ui_pixel_scale(self):
         return max(MIN_EFFECTIVE_UI_SCALE, float(getattr(self, "effective_ui_scale", 1.0)))
@@ -1855,7 +1908,7 @@ class AutoAudioApp(ctk.CTk):
                 pass
             self.maxsize(0, 0)
             self.minsize(SETTINGS_MIN_WIDTH, SETTINGS_MIN_HEIGHT)
-            self.resizable(True, True)
+            self.resizable(False, False)
             self.overrideredirect(False)
             self.attributes("-topmost", False)
             self.set_settings_geometry()
@@ -1959,6 +2012,19 @@ class AutoAudioApp(ctk.CTk):
         )
 
     def get_work_area(self):
+        if sys.platform == "win32":
+            try:
+                user32 = ctypes.windll.user32
+                monitor_from_window = user32.MonitorFromWindow
+                monitor_from_window.argtypes = [wintypes.HWND, wintypes.DWORD]
+                monitor_from_window.restype = wintypes.HMONITOR
+                monitor = monitor_from_window(wintypes.HWND(self.winfo_id()), MONITOR_DEFAULTTONEAREST)
+                info = MONITORINFO()
+                info.cbSize = ctypes.sizeof(info)
+                if monitor and user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+                    return info.rcWork.left, info.rcWork.top, info.rcWork.right, info.rcWork.bottom
+            except Exception:
+                pass
         rect = wintypes.RECT()
         try:
             ctypes.windll.user32.SystemParametersInfoW(SPI_GETWORKAREA, 0, ctypes.byref(rect), 0)
