@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import math
@@ -61,6 +62,7 @@ SETTINGS_EVENT_LOG_FILE = os.path.join(LOG_DIR, "settings_events.log")
 APP_ICON_FILE = os.path.join(RESOURCE_DIR, "assets", "app_icon.png")
 APP_ICON_ICO_FILE = os.path.join(RESOURCE_DIR, "assets", "app_icon.ico")
 ICON_DIR = os.path.join(RESOURCE_DIR, "assets", "icons")
+PROGRAM_ICON_CACHE_DIR = os.path.join(APP_DIR, "program_icons")
 APP_VERSION = "1.0.3"
 WINDOWS_APP_ID = "AutoAudioSwitcher.AutoAudioSwitcher"
 SINGLE_INSTANCE_MUTEX_NAME = "Local\\AutoAudioSwitcher.SingleInstance"
@@ -316,6 +318,174 @@ def get_shell_file_icon(path, large=True):
         flags,
     )
     return shell_info.hIcon if result and shell_info.hIcon else None
+
+
+def query_process_image_path(pid):
+    """Return an executable path using the least-privileged Windows process query."""
+    if sys.platform != "win32" or not pid:
+        return ""
+    process_handle = None
+    try:
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.QueryFullProcessImageNameW.argtypes = (wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD))
+        kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+        process_handle = kernel32.OpenProcess(0x1000, False, int(pid))  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not process_handle:
+            return ""
+        buffer = ctypes.create_unicode_buffer(32768)
+        length = wintypes.DWORD(len(buffer))
+        if kernel32.QueryFullProcessImageNameW(process_handle, 0, buffer, ctypes.byref(length)):
+            return buffer.value
+    except Exception:
+        pass
+    finally:
+        if process_handle:
+            try:
+                ctypes.windll.kernel32.CloseHandle(process_handle)
+            except Exception:
+                pass
+    return ""
+
+
+def get_visible_window_processes():
+    """Map visible app PIDs to their current desktop Z-order and representative HWND."""
+    windows = {}
+    foreground = 0
+    try:
+        foreground = int(win32gui.GetForegroundWindow() or 0)
+    except Exception:
+        pass
+
+    def collect(hwnd, _):
+        try:
+            if not win32gui.IsWindowVisible(hwnd) or not win32gui.GetWindowText(hwnd).strip():
+                return
+            process_id = wintypes.DWORD()
+            ctypes.windll.user32.GetWindowThreadProcessId(wintypes.HWND(hwnd), ctypes.byref(process_id))
+            pid = int(process_id.value)
+            if not pid or pid in windows:
+                return
+            windows[pid] = {
+                "window_rank": len(windows),
+                "window_handle": int(hwnd),
+                "is_foreground": int(hwnd) == foreground,
+            }
+        except Exception:
+            return
+
+    try:
+        win32gui.EnumWindows(collect, None)
+    except Exception:
+        pass
+    return windows
+
+
+def running_program_recent_sort_key(program):
+    window_rank = program.get("window_rank")
+    has_visible_window = window_rank is not None
+    return (
+        1 if has_visible_window else 0,
+        -int(window_rank) if has_visible_window else 0,
+        float(program.get("create_time") or 0),
+        str(program.get("name") or "").casefold(),
+    )
+
+
+def should_include_running_program(cpu_percent, memory_mb, has_visible_window=False):
+    return bool(
+        has_visible_window
+        or cpu_percent >= MIN_RUNNING_PROGRAM_CPU_PERCENT
+        or memory_mb >= MIN_RUNNING_PROGRAM_MEMORY_MB
+    )
+
+
+def get_window_icon_handle(hwnd):
+    if not hwnd:
+        return None
+    user32 = ctypes.windll.user32
+    for icon_type in (1, 2, 0):  # ICON_BIG, ICON_SMALL2, ICON_SMALL
+        try:
+            result = ctypes.c_size_t()
+            if user32.SendMessageTimeoutW(
+                wintypes.HWND(hwnd),
+                0x007F,
+                wintypes.WPARAM(icon_type),
+                wintypes.LPARAM(0),
+                0x0002,
+                100,
+                ctypes.byref(result),
+            ) and result.value:
+                return int(result.value)
+        except Exception:
+            pass
+    for class_index in (-14, -34):  # GCLP_HICON, GCLP_HICONSM
+        try:
+            getter = getattr(user32, "GetClassLongPtrW", user32.GetClassLongW)
+            getter.restype = ctypes.c_size_t
+            icon_handle = getter(wintypes.HWND(hwnd), class_index)
+            if icon_handle:
+                return int(icon_handle)
+        except Exception:
+            pass
+    return None
+
+
+def get_image_from_icon_handle(icon_handle, source_size=32):
+    if not icon_handle:
+        return None
+    screen_dc_handle = None
+    hdc = None
+    memory_dc = None
+    bitmap = None
+    try:
+        screen_dc_handle = win32gui.GetDC(0)
+        hdc = win32ui.CreateDCFromHandle(screen_dc_handle)
+        bitmap = win32ui.CreateBitmap()
+        bitmap.CreateCompatibleBitmap(hdc, source_size, source_size)
+        memory_dc = hdc.CreateCompatibleDC()
+        memory_dc.SelectObject(bitmap)
+        win32gui.DrawIconEx(memory_dc.GetSafeHdc(), 0, 0, icon_handle, source_size, source_size, 0, 0, win32con.DI_NORMAL)
+        bmpinfo = bitmap.GetInfo()
+        bmpstr = bitmap.GetBitmapBits(True)
+        return Image.frombuffer(
+            "RGBA",
+            (bmpinfo["bmWidth"], bmpinfo["bmHeight"]),
+            bmpstr,
+            "raw",
+            "BGRA",
+            0,
+            1,
+        ).copy()
+    except Exception:
+        return None
+    finally:
+        if memory_dc is not None:
+            try:
+                memory_dc.DeleteDC()
+            except Exception:
+                pass
+        if bitmap is not None:
+            try:
+                win32gui.DeleteObject(bitmap.GetHandle())
+            except Exception:
+                pass
+        if screen_dc_handle:
+            try:
+                win32gui.ReleaseDC(0, screen_dc_handle)
+            except Exception:
+                pass
+
+
+def get_icon_from_window(hwnd, size=32, source_size=None, corner_radius=0):
+    source_size = max(source_size or size, size)
+    image = get_image_from_icon_handle(get_window_icon_handle(hwnd), source_size)
+    if image is None:
+        return None
+    source_corner_radius = int(corner_radius * source_size / size) if size else corner_radius
+    image = apply_rounded_corners(image, source_corner_radius)
+    return ctk.CTkImage(light_image=image, dark_image=image, size=(size, size))
 
 
 def apply_rounded_corners(image, radius):
@@ -1340,6 +1510,7 @@ class AutoAudioApp(ctk.CTk):
         self.ask_keyboard_down_vk = None
         self.hotkey_capture_active = False
         self.exe_icon_cache = {}
+        self.window_icon_cache = {}
         self.program_icon_preload_queue = []
         self.program_icon_load_counter = 0
         self.audio_device_ids = {}
@@ -3454,6 +3625,36 @@ class AutoAudioApp(ctk.CTk):
             self.exe_icon_cache[cache_key] = icon
         return self.exe_icon_cache[cache_key]
 
+    def get_cached_window_icon(self, hwnd, size=PROGRAM_ICON_SIZE, source_size=None, corner_radius=0):
+        cache_key = (int(hwnd or 0), size, source_size or size, corner_radius)
+        if cache_key not in self.window_icon_cache:
+            self.window_icon_cache[cache_key] = get_icon_from_window(
+                hwnd,
+                size=size,
+                source_size=source_size,
+                corner_radius=corner_radius,
+            )
+        return self.window_icon_cache[cache_key]
+
+    def cache_running_program_icon(self, program):
+        hwnd = program.get("window_handle")
+        if not hwnd:
+            return ""
+        image = get_image_from_icon_handle(get_window_icon_handle(hwnd), MINI_DETECTED_ICON_SOURCE_SIZE)
+        if image is None:
+            return ""
+        try:
+            os.makedirs(PROGRAM_ICON_CACHE_DIR, exist_ok=True)
+            identity = f'{program.get("name", "")}\0{program.get("path", "")}'.encode("utf-8", errors="replace")
+            filename = f"{hashlib.sha256(identity).hexdigest()[:24]}.png"
+            icon_path = os.path.join(PROGRAM_ICON_CACHE_DIR, filename)
+            image.save(icon_path, "PNG", optimize=True)
+            logging.info("running program icon cached name=%s path=%s", program.get("name"), icon_path)
+            return icon_path
+        except Exception:
+            logging.exception("running program icon cache failed name=%s", program.get("name"))
+            return ""
+
     def update_detect_ui_with_program_icon(self, program, icon_source):
         icon = self.get_cached_program_icon(
             icon_source,
@@ -4917,6 +5118,7 @@ class AutoAudioApp(ctk.CTk):
         )
 
     def open_running_program_picker(self, key):
+        self.window_icon_cache = {}
         picker = ctk.CTkToplevel(self)
         picker.title("Add Running Program")
         picker.geometry(self.center_child_geometry(680, 560))
@@ -4971,7 +5173,7 @@ class AutoAudioApp(ctk.CTk):
         if sort_mode == "resource":
             processes = sorted(processes, key=lambda item: (item.get("resource_score", 0), item.get("memory_mb", 0)), reverse=True)
         elif sort_mode == "recent":
-            processes = sorted(processes, key=lambda item: item.get("create_time", 0), reverse=True)
+            processes = sorted(processes, key=running_program_recent_sort_key, reverse=True)
         else:
             processes = sorted(processes, key=lambda item: item["name"].lower())
 
@@ -4979,8 +5181,10 @@ class AutoAudioApp(ctk.CTk):
             row = ctk.CTkFrame(scroll, fg_color=PANEL_BG, corner_radius=4)
             row.pack(fill="x", padx=4, pady=4)
 
-            icon_source = program.get("path") or program.get("name") or "program.exe"
-            icon = self.get_cached_program_icon(icon_source, size=PROGRAM_ICON_SIZE)
+            icon_source = program.get("path") or ""
+            icon = self.get_cached_program_icon(icon_source, size=PROGRAM_ICON_SIZE, use_shell_fallback=False) if icon_source else None
+            if icon is None and program.get("window_handle"):
+                icon = self.get_cached_window_icon(program["window_handle"], size=PROGRAM_ICON_SIZE)
             ctk.CTkLabel(row, text="" if icon else "APP", image=icon, width=42, height=42, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(8, 4), pady=6)
 
             text_box = ctk.CTkFrame(row, fg_color="transparent")
@@ -4996,6 +5200,7 @@ class AutoAudioApp(ctk.CTk):
         current_pid = os.getpid()
         candidates = []
         grouped = {}
+        visible_windows = get_visible_window_processes()
         scan_errors = 0
         resource_filtered = 0
         missing_paths = 0
@@ -5019,7 +5224,13 @@ class AutoAudioApp(ctk.CTk):
                 name = process.info.get("name")
                 if not name:
                     continue
+                pid = process.info.get("pid")
                 path = process.info.get("exe") or ""
+                if not path:
+                    try:
+                        path = process.exe() or ""
+                    except Exception:
+                        path = query_process_image_path(pid)
                 if not path:
                     missing_paths += 1
                 memory = process.info.get("memory_info")
@@ -5028,12 +5239,14 @@ class AutoAudioApp(ctk.CTk):
                 memory_mb = (memory.rss / 1024 / 1024) if memory else 0
                 raw_cpu_percent = float(process.cpu_percent(None) or 0)
                 cpu_percent = min(100.0, raw_cpu_percent / CPU_CORE_COUNT)
-                if cpu_percent < MIN_RUNNING_PROGRAM_CPU_PERCENT and memory_mb < MIN_RUNNING_PROGRAM_MEMORY_MB:
+                window_info = visible_windows.get(pid, {})
+                has_visible_window = window_info.get("window_rank") is not None
+                if not should_include_running_program(cpu_percent, memory_mb, has_visible_window):
                     resource_filtered += 1
                     continue
 
                 item = grouped.setdefault(
-                    name,
+                    name.casefold(),
                     {
                         "name": name,
                         "path": path,
@@ -5041,6 +5254,8 @@ class AutoAudioApp(ctk.CTk):
                         "memory_mb": 0,
                         "resource_score": 0,
                         "create_time": 0,
+                        "window_rank": None,
+                        "window_handle": None,
                     },
                 )
                 item["cpu_percent"] += cpu_percent
@@ -5049,6 +5264,10 @@ class AutoAudioApp(ctk.CTk):
                 item["create_time"] = max(item["create_time"], float(process.info.get("create_time") or 0))
                 if path and not item.get("path"):
                     item["path"] = path
+                window_rank = window_info.get("window_rank")
+                if window_rank is not None and (item.get("window_rank") is None or window_rank < item["window_rank"]):
+                    item["window_rank"] = window_rank
+                    item["window_handle"] = window_info.get("window_handle")
                 item["resource_score"] = item["cpu_percent"] * 100 + item["memory_mb"]
             except Exception:
                 scan_errors += 1
@@ -5067,6 +5286,7 @@ class AutoAudioApp(ctk.CTk):
         return sorted(results, key=lambda item: item["name"].lower())
 
     def pick_running_program(self, key, program, picker):
+        icon_path = self.cache_running_program_icon(program)
         self.add_program(
             key,
             {
@@ -5074,6 +5294,7 @@ class AutoAudioApp(ctk.CTk):
                 "match_type": "process_name",
                 "value": program["name"],
                 "path": program.get("path") or "",
+                "icon_path": icon_path,
                 "target_audio": "headset",
             },
         )
