@@ -1,11 +1,12 @@
 param(
-    [string]$InstallDir = "$env:LOCALAPPDATA\AutoAudioSwitcher",
+    [string]$InstallDir = "$env:LOCALAPPDATA\Programs\AutoAudioSwitcher",
     [switch]$NoDesktopShortcut,
     [switch]$NoStartMenuShortcut,
     [switch]$ResetConfig
 )
 
 $ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
 
 function Write-Step {
     param([string]$Message)
@@ -48,9 +49,7 @@ if ($forbiddenTargets -contains $normalizedInstallDir) {
 $requiredFiles = @(
     "AutoAudioSwitcher.exe",
     "_internal\python310.dll",
-    "_internal\python3.dll",
-    "_internal\nircmd.exe",
-    "config.json"
+    "_internal\python3.dll"
 )
 
 foreach ($relativePath in $requiredFiles) {
@@ -65,6 +64,15 @@ Write-Step "Installing to $InstallDir"
 $inPlaceInstall = $normalizedSourceDir -eq $normalizedInstallDir
 
 $installedExe = Join-Path $InstallDir "AutoAudioSwitcher.exe"
+$installMarker = Join-Path $InstallDir ".auto-audio-switcher-install"
+$legacyOwnedInstall = (Test-Path -LiteralPath $installedExe) -and (Test-Path -LiteralPath (Join-Path $InstallDir "_internal\python310.dll"))
+if ((Test-Path -LiteralPath $InstallDir) -and -not $inPlaceInstall -and -not (Test-Path -LiteralPath $installMarker) -and -not $legacyOwnedInstall) {
+    $existingItems = @(Get-ChildItem -LiteralPath $InstallDir -Force -ErrorAction SilentlyContinue)
+    if ($existingItems.Count -gt 0) {
+        throw "The selected folder is not an Auto Audio Switcher installation. Choose an empty folder to protect unrelated files: $InstallDir"
+    }
+}
+
 Get-Process -Name "AutoAudioSwitcher" -ErrorAction SilentlyContinue | Where-Object {
     try { $_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -eq $installedExe) } catch { $false }
 } | ForEach-Object {
@@ -73,7 +81,8 @@ Get-Process -Name "AutoAudioSwitcher" -ErrorAction SilentlyContinue | Where-Obje
     $_.WaitForExit()
 }
 
-$existingConfig = Join-Path $InstallDir "config.json"
+$dataDir = Join-Path $env:LOCALAPPDATA "AutoAudioSwitcher"
+$existingConfig = Join-Path $dataDir "config.json"
 if ($inPlaceInstall) {
     Write-Step "The extracted app is already in the selected install directory; keeping files in place."
 } else {
@@ -88,15 +97,34 @@ if ($inPlaceInstall) {
         New-Item -ItemType Directory -Path $InstallDir | Out-Null
     }
 
-    Get-ChildItem -LiteralPath $InstallDir -Force | Where-Object { $_.Name -ne "logs" } | Remove-Item -Recurse -Force
-    foreach ($appItem in @("AutoAudioSwitcher.exe", "config.json", "_internal")) {
+    $ownedItems = @(
+        "AutoAudioSwitcher.exe",
+        "_internal",
+        "README.md",
+        "SECURITY.md",
+        "release_manifest.json",
+        "Install_AutoAudioSwitcher.ps1",
+        "Install_AutoAudioSwitcher.bat"
+    )
+    foreach ($ownedItem in $ownedItems) {
+        $ownedPath = Join-Path $InstallDir $ownedItem
+        if (Test-Path -LiteralPath $ownedPath) {
+            Remove-Item -LiteralPath $ownedPath -Recurse -Force
+        }
+    }
+    foreach ($appItem in $ownedItems) {
         $appItemPath = Join-Path $sourceDir $appItem
         if (Test-Path -LiteralPath $appItemPath) {
             Copy-Item -LiteralPath $appItemPath -Destination $InstallDir -Recurse -Force
         }
     }
 
+    [System.IO.File]::WriteAllText($installMarker, "AutoAudioSwitcher`r`n", (New-Object System.Text.UTF8Encoding($false)))
+
     if ($backupConfig -and (Test-Path -LiteralPath $backupConfig)) {
+        if (-not (Test-Path -LiteralPath $dataDir)) {
+            New-Item -ItemType Directory -Path $dataDir | Out-Null
+        }
         Copy-Item -LiteralPath $backupConfig -Destination $existingConfig -Force
         Remove-Item -LiteralPath $backupConfig -Force
     }

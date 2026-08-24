@@ -2,12 +2,17 @@ param(
     [string]$ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
     [string]$Version = "1.0.3",
     [string]$SourceDir = "",
+    [string]$OutputDir = "",
     [switch]$Use7Zip
 )
 
 $ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
 
-$dist = Join-Path $ProjectRoot "dist"
+$dist = if ($OutputDir) { [System.IO.Path]::GetFullPath($OutputDir) } else { Join-Path $ProjectRoot "dist" }
+if (-not (Test-Path -LiteralPath $dist)) {
+    New-Item -ItemType Directory -Path $dist | Out-Null
+}
 $source = if ($SourceDir) { [System.IO.Path]::GetFullPath($SourceDir) } else { Join-Path $dist "AutoAudioSwitcher" }
 $installerDir = Join-Path $ProjectRoot "installer"
 $stageParent = Join-Path $dist "_zip_stage"
@@ -63,6 +68,38 @@ if (Test-Path -LiteralPath $internalConfig) {
 Copy-Item -LiteralPath (Join-Path $installerDir "Install_AutoAudioSwitcher.ps1") -Destination $stage -Force
 Copy-Item -LiteralPath (Join-Path $installerDir "Install_AutoAudioSwitcher.bat") -Destination $stage -Force
 Copy-Item -LiteralPath (Join-Path $ProjectRoot "README.md") -Destination $stage -Force
+Copy-Item -LiteralPath (Join-Path $ProjectRoot "SECURITY.md") -Destination $stage -Force
+
+$diagnosticsDir = Join-Path $stageParent "diagnostics"
+$stagedExe = Join-Path $stage "AutoAudioSwitcher.exe"
+$diagnosticsArguments = @("--diagnostics", ('"--diagnostics-dir={0}"' -f $diagnosticsDir))
+$diagnosticsProcess = Start-Process -FilePath $stagedExe -ArgumentList $diagnosticsArguments -WindowStyle Hidden -Wait -PassThru
+if ($diagnosticsProcess.ExitCode -ne 0) {
+    throw "Packaged runtime diagnostics failed with exit code $($diagnosticsProcess.ExitCode)."
+}
+$diagnosticsReport = Join-Path $diagnosticsDir "runtime_diagnostics.json"
+if (-not (Test-Path -LiteralPath $diagnosticsReport)) {
+    throw "Packaged runtime diagnostics did not create a report."
+}
+$diagnostics = Get-Content -LiteralPath $diagnosticsReport -Raw | ConvertFrom-Json
+if (-not $diagnostics.ok -or -not $diagnostics.frozen) {
+    throw "Packaged runtime diagnostics reported an invalid self-contained build."
+}
+
+$releaseManifest = [ordered]@{
+    product = "Auto Audio Switcher"
+    version = $Version
+    architecture = "Windows x64"
+    self_contained = $true
+    python_install_required = $false
+    executable_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $stagedExe).Hash
+} | ConvertTo-Json
+[System.IO.File]::WriteAllText((Join-Path $stage "release_manifest.json"), $releaseManifest + [Environment]::NewLine, $utf8NoBom)
+
+$signature = Get-AuthenticodeSignature -LiteralPath $stagedExe
+if ($signature.Status -ne "Valid") {
+    Write-Warning "AutoAudioSwitcher.exe is not Authenticode-signed. Sign release files before a public production launch to reduce SmartScreen friction."
+}
 
 if (Test-Path -LiteralPath $zipPath) {
     Remove-Item -LiteralPath $zipPath -Force
@@ -83,4 +120,7 @@ if ($Use7Zip -and $sevenZip) {
 }
 
 Remove-Item -LiteralPath $stageParent -Recurse -Force
-Get-Item -LiteralPath $zipPath
+$zip = Get-Item -LiteralPath $zipPath
+$zipHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath).Hash
+Write-Host ("SHA256: {0}" -f $zipHash)
+$zip
