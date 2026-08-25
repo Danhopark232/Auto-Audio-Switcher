@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Auto Audio Switcher for Windows – Switch Speaker &amp; Headset by App</title>
+  <meta name="description" content="Automatically switch Windows audio outputs between speakers and headsets when selected games or programs start. Includes per-app Ask/Auto rules and hotkey control.">
+  <link rel="canonical" href="https://danhopark232.github.io/Auto-Audio-Switcher/">
+  <meta name="theme-color" content="#171717">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Auto Audio Switcher">
+  <meta property="og:title" content="Auto Audio Switcher for Windows">
+  <meta property="og:description" content="Switch speakers and headsets automatically for the Windows programs you choose.">
+  <meta property="og:url" content="https://danhopark232.github.io/Auto-Audio-Switcher/">
+  <meta property="og:image" content="https://danhopark232.github.io/Auto-Audio-Switcher/assets/og.png">
+  <meta property="og:image:width" content="1731">
+  <meta property="og:image:height" content="909">
+  <meta property="og:image:alt" content="Auto Audio Switcher connecting a speaker and headset through a Windows application">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Auto Audio Switcher for Windows">
+  <meta name="twitter:description" content="Windows audio, switched by app.">
+  <meta name="twitter:image" content="https://danhopark232.github.io/Auto-Audio-Switcher/assets/og.png">
+
+  <link rel="stylesheet" href="styles.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Auto Audio Switcher",
+    "applicationCategory": "UtilitiesApplication",
+    "operatingSystem": "Windows 10, Windows 11",
+    "softwareVersion": "1.1.0",
+    "description": "Automatically switch Windows audio outputs between speakers and headsets for selected programs, with per-app Ask and Auto rules plus hotkey control.",
+    "url": "https://danhopark232.github.io/Auto-Audio-Switcher/",
+    "downloadUrl": "https://github.com/Danhopark232/Auto-Audio-Switcher/releases/download/v1.1.0/AutoAudioSwitcher-v1.1.0-Windows-x64.zip",
+    "releaseNotes": "https://github.com/Danhopark232/Auto-Audio-Switcher/releases/tag/v1.1.0",
+    "screenshot": "https://danhopark232.github.io/Auto-Audio-Switcher/assets/settings-program-list.png",
+    "codeRepository": "https://github.com/Danhopark232/Auto-Audio-Switcher",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "author": {
+      "@type": "Person",
+      "name": "Danhopark232"
+    }
+  }
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="Auto Audio Switcher home">
+      <span class="brand-mark" aria-hidden="true">A</span>
+      <span>Auto Audio Switcher</span>
+    </a>
+    <nav aria-label="Primary navigation">
+      <a href="#features">Features</a>
+      <a href="#how-it-works">How it works</a>
+      <a href="#korean">한국어</a>
+      <a href="https://github.com/Danhopark232/Auto-Audio-Switcher">GitHub</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="top">
+      <div class="hero-copy">
+        <p class="eyebrow">Windows 10/11 · x64 · Free utility</p>
+        <h1>Your Windows audio,<br><span>switched by app.</span></h1>
+        <p class="hero-lead">Automatically move between speakers and a headset when selected games or programs start. Choose instant switching, a confirmation prompt, or a manual hotkey.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="https://github.com/Danhopark232/Auto-Audio-Switcher/releases/download/v1.1.0/AutoAudioSwitcher-v1.1.0-Windows-x64.zip">Download v1.1.0</a>
+          <a class="button button-secondary" href="https://github.com/Danhopark232/Auto-Audio-Switcher/releases/tag/v1.1.0">View release notes</a>
+        </div>
+        <p class="download-note">Self-contained ZIP · No Python installation · Runs without administrator privileges</p>
+      </div>
+
+      <div class="hero-visual" aria-label="Auto Audio Switcher mini control">
+        <div class="route" aria-hidden="true"></div>
+        <div class="device-card">
+          <span class="device-icon" aria-hidden="true">◉</span>
+          <strong>Speaker</strong>
+        </div>
+        <div class="switch-card">
+          <span>Program detected</span>
+          <strong>Output changed</strong>
+          <small>Ask / Auto / Hotkey</small>
+        </div>
+        <div class="device-card active">
+          <span class="device-icon" aria-hidden="true">⌁</span>
+          <strong>Headset</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="trust-strip" aria-label="Product principles">
+      <div><strong>Local first</strong><span>No telemetry or cloud account</span></div>
+      <div><strong>Per-app rules</strong><span>Ask or switch automatically</span></div>
+      <div><strong>Lightweight logs</strong><span>Rotated and removed after 14 days</span></div>
+      <div><strong>Public on GitHub</strong><span>Code and releases in one place</span></div>
+    </section>
+
+    <section class="product-shot section" aria-labelledby="product-shot-title">
+      <div class="section-heading">
+        <p class="eyebrow">One clear control center</p>
+        <h2 id="product-shot-title">Set outputs, rules, and hotkeys in one place</h2>
+        <p>The settings window keeps audio profiles and program behavior together, while the compact mini view stays out of the way.</p>
+      </div>
+      <figure>
+        <img src="assets/settings-program-list.png" width="1126" height="687" loading="eager" alt="Auto Audio Switcher settings showing speaker and headset outputs, program rules, hotkey, and language controls">
+        <figcaption>Auto Audio Switcher v1.1.0 settings on Windows.</figcaption>
+      </figure>
+    </section>
+
+    <section class="section" id="features" aria-labelledby="features-title">
+      <div class="section-heading">
+        <p class="eyebrow">Built for everyday Windows audio</p>
+        <h2 id="features-title">Automatic when you want it. Manual when you need it.</h2>
+      </div>
+      <div class="feature-grid">
+        <article>
+          <span class="feature-number">01</span>
+          <h3>Speaker and headset profiles</h3>
+          <p>Choose one output for desktop use and another for games, calls, or focused work.</p>
+        </article>
+        <article>
+          <span class="feature-number">02</span>
+          <h3>Program-specific rules</h3>
+          <p>Add running programs or EXE files and decide which output each program should use.</p>
+        </article>
+        <article>
+          <span class="feature-number">03</span>
+          <h3>Ask or Auto</h3>
+          <p>Switch immediately or show a short confirmation before changing the default device.</p>
+        </article>
+        <article>
+          <span class="feature-number">04</span>
+          <h3>Output hotkey</h3>
+          <p>Toggle between configured outputs without opening Windows sound settings.</p>
+        </article>
+        <article>
+          <span class="feature-number">05</span>
+          <h3>Offline-device memory</h3>
+          <p>Keep your chosen output profile even when that device is temporarily unavailable.</p>
+        </article>
+        <article>
+          <span class="feature-number">06</span>
+          <h3>Resolution-aware UI</h3>
+          <p>Settings scale to fit different Windows display sizes and DPI configurations.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section steps" id="how-it-works" aria-labelledby="steps-title">
+      <div class="section-heading">
+        <p class="eyebrow">Ready in minutes</p>
+        <h2 id="steps-title">How it works</h2>
+      </div>
+      <ol>
+        <li><span>1</span><div><strong>Choose two outputs</strong><p>Select your speaker and headset devices.</p></div></li>
+        <li><span>2</span><div><strong>Add a program</strong><p>Pick a running app or browse to its EXE file.</p></div></li>
+        <li><span>3</span><div><strong>Choose Ask or Auto</strong><p>Let the app handle the next output change.</p></div></li>
+      </ol>
+      <img class="mini-shot" src="assets/mini-view.png" width="546" height="94" loading="lazy" alt="Compact Auto Audio Switcher mini view with detected program and speaker and headset controls">
+    </section>
+
+    <section class="section korean" id="korean" lang="ko" aria-labelledby="korean-title">
+      <div>
+        <p class="eyebrow">한국어 지원</p>
+        <h2 id="korean-title">윈도우 프로그램별 오디오 출력을 자동으로 전환하세요</h2>
+        <p>게임이나 지정한 프로그램이 실행되면 스피커에서 헤드셋으로 자동 전환하고, 프로그램이 종료되면 다시 원하는 출력으로 돌아갈 수 있습니다. 자동 변경이 부담스럽다면 확인창을 표시하거나 출력 전환 단축키를 사용할 수 있습니다.</p>
+      </div>
+      <ul>
+        <li>Windows 10·11 오디오 자동 전환</li>
+        <li>프로그램별 스피커·헤드셋 출력 설정</li>
+        <li>게임 실행 시 헤드셋 자동 변경</li>
+        <li>기본 오디오 장치 전환 단축키</li>
+      </ul>
+    </section>
+
+    <section class="section privacy" aria-labelledby="privacy-title">
+      <div class="section-heading">
+        <p class="eyebrow">Private by design</p>
+        <h2 id="privacy-title">Your program list stays on your PC</h2>
+        <p>Auto Audio Switcher has no telemetry and does not upload runtime information. Settings, cached icons, and bounded diagnostic logs remain under your local Windows user profile.</p>
+      </div>
+      <a href="https://github.com/Danhopark232/Auto-Audio-Switcher/blob/main/SECURITY.md">Read security and privacy notes →</a>
+    </section>
+
+    <section class="section faq" aria-labelledby="faq-title">
+      <div class="section-heading">
+        <p class="eyebrow">Common questions</p>
+        <h2 id="faq-title">FAQ</h2>
+      </div>
+      <details>
+        <summary>Does Auto Audio Switcher require Python?</summary>
+        <p>No. The Windows release ZIP includes Python and all required runtime libraries.</p>
+      </details>
+      <details>
+        <summary>Can it switch Windows audio output for a specific program?</summary>
+        <p>Yes. Add a program rule, choose its target output, then select Ask or Auto behavior.</p>
+      </details>
+      <details>
+        <summary>Does it need administrator privileges?</summary>
+        <p>No. The app runs with standard user privileges and stores its writable data in the current user's local app data folder.</p>
+      </details>
+      <details>
+        <summary>Why might Windows SmartScreen show a warning?</summary>
+        <p>The current direct-download executable is not Authenticode-signed. Verify that the download comes from the official GitHub release page and compare the published SHA-256 value.</p>
+      </details>
+    </section>
+
+    <section class="cta section" aria-labelledby="cta-title">
+      <p class="eyebrow">Version 1.1.0</p>
+      <h2 id="cta-title">Stop opening Sound settings every time.</h2>
+      <p>Download the self-contained Windows x64 release and choose how each program should sound.</p>
+      <div class="hero-actions">
+        <a class="button button-primary" href="https://github.com/Danhopark232/Auto-Audio-Switcher/releases/download/v1.1.0/AutoAudioSwitcher-v1.1.0-Windows-x64.zip">Download for Windows</a>
+        <a class="button button-secondary" href="https://github.com/Danhopark232/Auto-Audio-Switcher">View source on GitHub</a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>Auto Audio Switcher</span>
+    <span>Windows utility built with OpenAI Codex.</span>
+    <a href="https://github.com/Danhopark232/Auto-Audio-Switcher/issues">Report an issue</a>
+  </footer>
+</body>
+</html>

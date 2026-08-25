@@ -8,6 +8,10 @@ output between a speaker device and a headset device based on the programs you
 run. It is designed for game-focused workflows where some apps should use a
 headset, while the desktop can return to speakers afterward.
 
+**[Product website](https://danhopark232.github.io/Auto-Audio-Switcher/)** ·
+**[Download the latest release](https://github.com/Danhopark232/Auto-Audio-Switcher/releases/latest)** ·
+**[Report an issue](https://github.com/Danhopark232/Auto-Audio-Switcher/issues)**
+
 ![Mini view preview](assets/readme/mini-view.png)
 
 ## Current Version — v1.1.0

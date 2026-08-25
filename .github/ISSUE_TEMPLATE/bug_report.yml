@@ -1,0 +1,64 @@
+name: Bug report
+description: Report a reproducible problem with Auto Audio Switcher
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Auto Audio Switcher. Please remove personal information from logs before attaching them.
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: The version shown in the app or downloaded release.
+      placeholder: v1.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: windows
+    attributes:
+      label: Windows version
+      options:
+        - Windows 11
+        - Windows 10
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the actual behavior and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open ...
+        2. Select ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: audio-devices
+    attributes:
+      label: Audio devices involved
+      description: Include the speaker/headset names and whether either device was offline.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or screenshots
+      description: Drag files here after removing any personal or sensitive information.
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I checked the existing issues for the same problem.
+          required: true
+        - label: I removed personal or sensitive information from attachments.
+          required: true
