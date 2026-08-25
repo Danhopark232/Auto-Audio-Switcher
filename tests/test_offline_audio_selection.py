@@ -36,7 +36,6 @@ class OfflineAudioSelectionTests(unittest.TestCase):
         app = make_app()
         app.refresh_audio_device_cache_if_stale = lambda force=False: False
         app.set_audio_with_pycaw = lambda target, device_id=None: False
-        app.set_audio_with_nircmd = lambda target: False
 
         self.assertTrue(app.set_audio("speaker"))
         self.assertEqual(app.offline_audio_mode, "speaker")

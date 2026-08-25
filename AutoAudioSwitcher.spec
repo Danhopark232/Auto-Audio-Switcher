@@ -27,7 +27,6 @@ datas += [
     ("assets/app_icon.png", "assets"),
     ("assets/app_icon.ico", "assets"),
     ("config.json", "."),
-    ("nircmd.exe", "."),
 ]
 datas += [(f"assets/icons/{name}", "assets/icons") for name in icon_files]
 
@@ -68,7 +67,9 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    # Avoid executable packing: it provides little benefit for this onedir
+    # build and can increase antivirus false positives.
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,

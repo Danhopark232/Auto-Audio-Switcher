@@ -10,7 +10,7 @@ headset, while the desktop can return to speakers afterward.
 
 ![Mini view preview](assets/readme/mini-view.png)
 
-## Current Version — v1.0.3
+## Current Version — v1.1.0
 
 The current UI version focuses on faster audio switching, a compact mini view,
 clearer per-program control, and consistent sizing across Windows resolutions
@@ -34,26 +34,30 @@ and DPI scale settings.
 - **First-run guide**: new users are guided through output selection and the
   Ask / Auto behavior.
 - **Startup option**: the app can be configured to run when Windows starts.
-- **Runtime logs**: logs are saved under `logs/auto_audio_switcher.log` to help
-  diagnose intermittent detection, prompt, mini-view, and audio-switch issues.
+- **Runtime logs**: bounded logs are saved under the current user's local app
+  data folder to diagnose intermittent behavior without requiring admin access.
 - **Resolution-aware layout**: window, canvas, text, and dropdown dimensions use
   one DPI scale and shrink together when the Windows work area is smaller.
+- **Consistent design system**: panels, rows, controls, compact fields, and
+  dialogs share one radius, spacing, and height scale.
 
 ## Installation
 
-1. Download `AutoAudioSwitcher-v1.0.3-Windows-x64.zip` from GitHub Releases.
+1. Download `AutoAudioSwitcher-v1.1.0-Windows-x64.zip` from GitHub Releases.
 2. Extract the ZIP file completely.
-3. Run `Install_AutoAudioSwitcher.bat` from the extracted folder.
-4. Start **Auto Audio Switcher** from the desktop or Start menu shortcut.
+3. Run `AutoAudioSwitcher.exe`. No prerequisite installer is required.
 
-The installer places the app under `%LOCALAPPDATA%\AutoAudioSwitcher` by
-default and preserves existing settings when upgrading. The distribution
-already contains the Python runtime and required native libraries, so users do
-not need to install Python, pip packages, or Visual Studio separately.
+The distribution contains the Python runtime and required native libraries, so
+users do not need to install Python, pip packages, or Visual Studio. Settings,
+logs, and cached icons are stored under `%LOCALAPPDATA%\AutoAudioSwitcher`, so
+the extracted program can run without administrator privileges.
 
 The ZIP places `AutoAudioSwitcher.exe` at the top level beside the installer,
-so it is visible immediately after extraction. The same extracted folder can
-also be used as a portable build by running `AutoAudioSwitcher.exe` directly.
+so it is visible immediately after extraction. Running
+`Install_AutoAudioSwitcher.bat` is optional; it copies the app to the per-user
+application folder and creates desktop and Start menu shortcuts. Upgrades
+preserve existing settings and refuse to clear folders that are not recognized
+as an Auto Audio Switcher installation.
 
 ## Feature Highlights
 
@@ -105,7 +109,7 @@ settings window.
 
 ## Diagnostic Logs
 
-Runtime logs are stored in the app's `logs` folder:
+Runtime logs are stored under `%LOCALAPPDATA%\AutoAudioSwitcher\logs`:
 
 - `auto_audio_switcher.log`: device detection, switching, prompts, and failures
 - `settings_events.log`: compact settings-window interaction timings
@@ -119,9 +123,24 @@ When reporting a problem, include the approximate time it happened and attach
 the current log files. Logs can contain local device, program, and filesystem
 names, so review them before posting publicly.
 
+## Packaged Runtime Check
+
+Release builds support a non-interactive compatibility check that does not
+open the UI or switch audio:
+
+```powershell
+AutoAudioSwitcher.exe --diagnostics
+```
+
+The result is written to
+`%LOCALAPPDATA%\AutoAudioSwitcher\runtime_diagnostics.json`. The release build
+script runs this check automatically and rejects a package that is missing its
+bundled runtime, icon, native audio backend, 64-bit environment, or writable user-data
+directory.
+
 ## Notes
 
 This project is actively being refined around real runtime behavior. If audio
 switching, prompt dismissal, or mini-view hiding behaves unexpectedly, check the
-latest log file in `logs/` and include the surrounding timestamp when reporting
-the issue.
+latest log file under `%LOCALAPPDATA%\AutoAudioSwitcher\logs` and include the
+surrounding timestamp when reporting the issue.
