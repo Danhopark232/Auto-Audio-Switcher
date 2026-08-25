@@ -10,7 +10,7 @@ headset, while the desktop can return to speakers afterward.
 
 ![Mini view preview](assets/readme/mini-view.png)
 
-## Current Version — v1.0.3
+## Current Version — v1.1.0
 
 The current UI version focuses on faster audio switching, a compact mini view,
 clearer per-program control, and consistent sizing across Windows resolutions
@@ -43,7 +43,7 @@ and DPI scale settings.
 
 ## Installation
 
-1. Download `AutoAudioSwitcher-v1.0.3-Windows-x64.zip` from GitHub Releases.
+1. Download `AutoAudioSwitcher-v1.1.0-Windows-x64.zip` from GitHub Releases.
 2. Extract the ZIP file completely.
 3. Run `AutoAudioSwitcher.exe`. No prerequisite installer is required.
 

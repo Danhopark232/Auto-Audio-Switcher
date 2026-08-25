@@ -101,6 +101,7 @@ if ($inPlaceInstall) {
         "AutoAudioSwitcher.exe",
         "_internal",
         "README.md",
+        "CHANGELOG.md",
         "SECURITY.md",
         "release_manifest.json",
         "Install_AutoAudioSwitcher.ps1",

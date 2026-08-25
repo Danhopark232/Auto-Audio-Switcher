@@ -1,6 +1,6 @@
 param(
     [string]$ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
-    [string]$Version = "1.0.3",
+    [string]$Version = "1.1.0",
     [string]$SourceDir = "",
     [string]$OutputDir = "",
     [switch]$Use7Zip
@@ -68,6 +68,7 @@ if (Test-Path -LiteralPath $internalConfig) {
 Copy-Item -LiteralPath (Join-Path $installerDir "Install_AutoAudioSwitcher.ps1") -Destination $stage -Force
 Copy-Item -LiteralPath (Join-Path $installerDir "Install_AutoAudioSwitcher.bat") -Destination $stage -Force
 Copy-Item -LiteralPath (Join-Path $ProjectRoot "README.md") -Destination $stage -Force
+Copy-Item -LiteralPath (Join-Path $ProjectRoot "CHANGELOG.md") -Destination $stage -Force
 Copy-Item -LiteralPath (Join-Path $ProjectRoot "SECURITY.md") -Destination $stage -Force
 
 $diagnosticsDir = Join-Path $stageParent "diagnostics"
