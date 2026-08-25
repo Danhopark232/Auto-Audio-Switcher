@@ -9,6 +9,7 @@ run. It is designed for game-focused workflows where some apps should use a
 headset, while the desktop can return to speakers afterward.
 
 **[Product website](https://danhopark232.github.io/Auto-Audio-Switcher/)** ·
+**[한국어 제품 안내](https://danhopark232.github.io/Auto-Audio-Switcher/ko/)** ·
 **[Download the latest release](https://github.com/Danhopark232/Auto-Audio-Switcher/releases/latest)** ·
 **[Report an issue](https://github.com/Danhopark232/Auto-Audio-Switcher/issues)**
 
